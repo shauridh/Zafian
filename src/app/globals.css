@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: #faf7f0;
+  color: #141414;
+  font-family: var(--font-display), sans-serif;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  touch-action: manipulation;
+}
+
+/* Angka selalu mono agar rapi */
+.num {
+  font-family: var(--font-mono), monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scrollbar tipis */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: #14141433;
+  border-radius: 999px;
+}
+
+/* Safe area untuk ponsel ber-notch */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.mb-safe {
+  margin-bottom: env(safe-area-inset-bottom);
+}
+
+/* ===== Print (struk) ===== */
+@page {
+  margin: 3mm;
+}
+
+@media print {
+  body {
+    background: #fff !important;
+  }
+  /* Hanya print-area yang tercetak */
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: none !important;
+    box-shadow: none !important;
+  }
+  .print-area > div {
+    border: none !important;
+    box-shadow: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

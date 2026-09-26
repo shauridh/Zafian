@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: kasir-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kasir
+      POSTGRES_PASSWORD: kasir123
+      POSTGRES_DB: kasir
+    ports:
+      - "5432:5432"
+    volumes:
+      - kasir_pgdata:/var/lib/postgresql/data
+
+volumes:
+  kasir_pgdata:

@@ -1,0 +1,37 @@
+{
+  "name": "Zafian POS",
+  "short_name": "Zafian POS",
+  "description": "Aplikasi kasir F&B — cepat, tegas, siap pakai",
+  "start_url": "/pos",
+  "display": "standalone",
+  "background_color": "#FAF7F0",
+  "theme_color": "#FFD93D",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Buka Kasir",
+      "url": "/pos",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

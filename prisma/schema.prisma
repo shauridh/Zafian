@@ -1,0 +1,198 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Database: PostgreSQL (Supabase).
+// - DATABASE_URL: koneksi runtime via pooler (port 6543, pgBouncer) untuk serverless/Vercel
+// - DIRECT_URL: koneksi langsung (port 5432) untuk prisma db push / migrate
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        String    @id @default(cuid())
+  name      String
+  email     String    @unique
+  password  String
+  pinHash   String?
+  role      String    @default("CASHIER") // OWNER | ADMIN | CASHIER
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  orders    Order[]
+  shifts    Shift[]
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String
+  sortOrder Int       @default(0)
+  products  Product[]
+}
+
+model Product {
+  id             String          @id @default(cuid())
+  name           String
+  sku            String?
+  imageUrl       String?
+  price          Int
+  costPrice      Int             @default(0)
+  isAvailable    Boolean         @default(true)
+  categoryId     String?
+  category       Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  recipe         RecipeItem[]
+  orderItems     OrderItem[]
+  stockMovements StockMovement[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([categoryId])
+}
+
+model Ingredient {
+  id          String               @id @default(cuid())
+  name        String
+  unit        String               @default("pcs") // satuan jual/resep: gr | ml | pcs | ons | kg | l | pack | porsi | botol | kaleng | sloki | dus | sak | bks
+  stock       Float                @default(0) // selalu dalam satuan JUAL
+  minStock    Float                @default(0)
+  costPerUnit Int                  @default(0) // HPP per satuan jual (auto dari harga beli ÷ isi)
+  purchaseUnit   String?           // satuan beli (mis. kg, pack, dus) — boleh beda dari satuan jual
+  purchaseQty    Float?            // isi per 1 satuan beli, dikonversi ke satuan jual (mis. 1 kg = 10 ons)
+  purchasePrice  Int?              // harga beli per 1 satuan beli (Rp)
+  recipeItems RecipeItem[]
+  movements   IngredientMovement[]
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+}
+
+model RecipeItem {
+  id            String     @id @default(cuid())
+  productId     String
+  ingredientId  String
+  qtyPerServing Float
+  product       Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredient    Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, ingredientId])
+}
+
+model StockMovement {
+  id        String   @id @default(cuid())
+  productId String
+  type      String // IN | ADJUSTMENT | SALE | VOID | WASTE
+  qty       Float
+  note      String?
+  userId    String?
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model IngredientMovement {
+  id           String     @id @default(cuid())
+  ingredientId String
+  type         String // IN | ADJUSTMENT | SALE | VOID | WASTE
+  qty          Float
+  note         String?
+  userId       String?
+  createdAt    DateTime   @default(now())
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@index([ingredientId])
+}
+
+model Shift {
+  id                  String         @id @default(cuid())
+  userId              String
+  status              String         @default("OPEN") // OPEN | CLOSED
+  openingCash         Int            @default(0)
+  closingCashExpected Int?
+  closingCashActual   Int?
+  difference          Int?
+  openedAt            DateTime       @default(now())
+  closedAt            DateTime?
+  user                User           @relation(fields: [userId], references: [id])
+  orders              Order[]
+  cashMovements       CashMovement[]
+}
+
+model CashMovement {
+  id        String   @id @default(cuid())
+  shiftId   String
+  type      String // IN | OUT
+  amount    Int
+  note      String?
+  userId    String?
+  createdAt DateTime @default(now())
+  shift     Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  @@index([shiftId])
+}
+
+model Order {
+  id            String     @id @default(cuid())
+  orderNo       String     @unique
+  shiftId       String?
+  cashierId     String?
+  orderType     String     @default("TAKE_AWAY") // DINE_IN | TAKE_AWAY | GOFOOD | GRABFOOD | SHOPEEFOOD
+  tableNote     String?
+  subtotal      Int        @default(0)
+  discount      Int        @default(0)
+  tax           Int        @default(0)
+  total         Int        @default(0)
+  costTotal     Int        @default(0)
+  paymentMethod String     @default("CASH") // CASH | QRIS | ONLINE_PLATFORM
+  cashReceived  Int?
+  change        Int?
+  status        String     @default("COMPLETED") // COMPLETED | VOIDED | REFUNDED
+  voidReason    String?
+  refundAmount  Int        @default(0) // 0 = penuh; >0 = refund sebagian
+  voidById      String?
+  voidedAt      DateTime?
+  createdAt     DateTime   @default(now())
+  shift         Shift?     @relation(fields: [shiftId], references: [id])
+  cashier       User?      @relation(fields: [cashierId], references: [id])
+  items         OrderItem[]
+
+  @@index([createdAt])
+  @@index([shiftId])
+}
+
+model OrderItem {
+  id            String   @id @default(cuid())
+  orderId       String
+  productId     String?
+  nameSnapshot  String
+  priceSnapshot Int
+  qty           Int
+  discount      Int      @default(0)
+  note          String?
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product       Product? @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+}
+
+model Settings {
+  id                 String @id @default("main")
+  storeName          String @default("Toko Saya")
+  address            String @default("")
+  phone              String @default("")
+  logoUrl            String @default("")
+  footerReceipt      String @default("Terima kasih telah berkunjung!")
+  taxPercent         Float  @default(0)
+  receiptSize        Int    @default(58)
+  defaultOpeningCash Int    @default(350000)
+  autoPrint          Boolean @default(true) // otomatis buka dialog print setelah bayar
+  printerName        String @default("") // nama printer thermal (referensi)
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  meta      String?
+  createdAt DateTime @default(now())
+}
