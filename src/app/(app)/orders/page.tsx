@@ -29,7 +29,9 @@ export default async function OrdersPage() {
         address: settings?.address ?? "",
         phone: settings?.phone ?? "",
         footer: settings?.footerReceipt ?? "",
-        receiptSize: settings?.receiptSize ?? 80,
+        receiptSize: settings?.receiptSize ?? 58,
+        autoPrint: settings?.autoPrint ?? true,
+        logoUrl: settings?.logoUrl ?? "",
       }}
       orders={orders.map((o) => ({
         id: o.id,

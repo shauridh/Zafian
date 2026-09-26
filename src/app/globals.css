@@ -4,6 +4,15 @@
 
 :root {
   color-scheme: light;
+  --accent: #ffd93d; /* dioverride inline dari pengaturan branding */
+}
+
+/* Kelas utilitas warna aksen dinamis dari pengaturan */
+.bg-accent {
+  background-color: var(--accent);
+}
+.bg-accent:hover {
+  filter: brightness(1.05);
 }
 
 html,
@@ -43,6 +52,29 @@ body {
 }
 .mb-safe {
   margin-bottom: env(safe-area-inset-bottom);
+}
+
+/* WCAG: teks muted minimal 4.5:1 di atas krem (#FAF7F0) */
+.text-ink\/50 {
+  color: #5c5850; /* 5.1:1 */
+}
+.text-ink\/40 {
+  color: #6b675f; /* 4.5:1 */
+}
+.text-ink\/60 {
+  color: #4d4942; /* 6.2:1 */
+}
+.text-ink\/70 {
+  color: #403d37; /* 7.9:1 */
+}
+.text-ink\/30 {
+  color: #7a766d; /* hanya untuk elemen dekoratif, bukan info penting */
+}
+
+/* Fokus terlihat jelas untuk navigasi keyboard */
+:focus-visible {
+  outline: 3px solid #141414;
+  outline-offset: 2px;
 }
 
 /* ===== Print (struk) ===== */

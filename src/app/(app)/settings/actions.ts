@@ -24,6 +24,9 @@ export interface SettingsInput {
   defaultOpeningCash: number;
   autoPrint: boolean;
   printerName: string;
+  accentColor: string;
+  logoUrl: string;
+  useQzTray: boolean;
 }
 
 export async function saveSettings(input: SettingsInput): Promise<{ ok: boolean; error?: string }> {
@@ -32,6 +35,7 @@ export async function saveSettings(input: SettingsInput): Promise<{ ok: boolean;
   if (!input.storeName.trim()) return { ok: false, error: "Nama toko wajib diisi" };
   if (input.taxPercent < 0 || input.taxPercent > 100) return { ok: false, error: "PPN 0–100%" };
   if (input.defaultOpeningCash < 0) return { ok: false, error: "Modal awal tidak valid" };
+  if (!/^#[0-9a-fA-F]{6}$/.test(input.accentColor)) return { ok: false, error: "Warna aksen tidak valid" };
 
   await prisma.settings.upsert({
     where: { id: "main" },
@@ -45,6 +49,9 @@ export async function saveSettings(input: SettingsInput): Promise<{ ok: boolean;
       defaultOpeningCash: Math.round(input.defaultOpeningCash),
       autoPrint: input.autoPrint,
       printerName: input.printerName.trim(),
+      accentColor: input.accentColor,
+      logoUrl: input.logoUrl ?? "",
+      useQzTray: input.useQzTray,
     },
     create: {
       id: "main",
@@ -57,6 +64,9 @@ export async function saveSettings(input: SettingsInput): Promise<{ ok: boolean;
       defaultOpeningCash: Math.round(input.defaultOpeningCash),
       autoPrint: input.autoPrint,
       printerName: input.printerName.trim(),
+      accentColor: input.accentColor,
+      logoUrl: input.logoUrl ?? "",
+      useQzTray: input.useQzTray,
     },
   });
 

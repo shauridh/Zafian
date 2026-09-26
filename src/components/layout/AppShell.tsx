@@ -20,6 +20,7 @@ const NAV: NavItem[] = [
   { href: "/pos", label: "Kasir", icon: "🛒" },
   { href: "/orders", label: "Riwayat", icon: "🧾" },
   { href: "/shift", label: "Shift", icon: "⏱️" },
+  { href: "/live", label: "Live", icon: "🔴", ownerOnly: true },
   { href: "/products", label: "Menu", icon: "🍽️", ownerOnly: true },
   { href: "/ingredients", label: "Bahan", icon: "📦", ownerOnly: true },
   { href: "/reports", label: "Laporan", icon: "📊", ownerOnly: true },
@@ -29,9 +30,13 @@ const NAV: NavItem[] = [
 export function AppShell({
   session,
   children,
+  logoUrl,
+  storeName,
 }: {
   session: Session;
   children: React.ReactNode;
+  logoUrl?: string;
+  storeName?: string;
 }) {
   const pathname = usePathname();
   const user = session.user as unknown as SessionUser;
@@ -46,8 +51,17 @@ export function AppShell({
     <div className="flex min-h-dvh">
       {/* Sidebar — tablet/desktop */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-56 flex-col border-r-[2.5px] border-ink bg-white lg:flex">
-        <div className="border-b-[2.5px] border-ink px-4 py-4">
-          <span className="font-display text-xl font-bold tracking-tight">Zafian<span className="bg-sun px-1">POS</span></span>
+        <div className="flex items-center gap-2 border-b-[2.5px] border-ink px-4 py-4">
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl} alt="Logo" className="h-8 w-8 rounded-lg border-2 border-ink object-contain" />
+          ) : (
+            <span className="text-xl">☕</span>
+          )}
+          <span className="font-display text-xl font-bold tracking-tight">
+            {(storeName ?? "Zafian POS").split(" ")[0]}
+            <span className="bg-accent px-1">POS</span>
+          </span>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto p-3">
           {items.map((item) => (
@@ -57,7 +71,7 @@ export function AppShell({
               className={cn(
                 "flex items-center gap-3 rounded-xl border-[2.5px] px-3 py-2.5 text-sm font-bold uppercase tracking-wide transition-all",
                 pathname.startsWith(item.href)
-                  ? "border-ink bg-sun shadow-neo-sm"
+                  ? "border-ink bg-accent shadow-neo-sm"
                   : "border-transparent hover:bg-ink/5"
               )}
             >
@@ -99,7 +113,7 @@ export function AppShell({
             <span
               className={cn(
                 "flex h-8 w-8 items-center justify-center rounded-lg border-2 border-ink text-base",
-                pathname.startsWith(item.href) ? "bg-sun shadow-neo-sm" : "border-transparent bg-transparent"
+                pathname.startsWith(item.href) ? "bg-accent shadow-neo-sm" : "border-transparent bg-transparent"
               )}
             >
               {item.icon}

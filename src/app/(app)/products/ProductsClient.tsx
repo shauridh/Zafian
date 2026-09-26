@@ -12,6 +12,7 @@ import { ProductImage } from "@/components/pos/ProductImage";
 import { Numpad } from "@/components/ui/Numpad";
 import { useUI } from "@/store/ui";
 import { saveProduct, deleteProduct, saveCategory } from "./actions";
+import { exportExcel, importExcel } from "./excel-actions";
 import { formatRupiah } from "@/lib/utils";
 
 interface RecipeRow {
@@ -66,6 +67,7 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
   >({ kind: "closed" });
   const [catNumpadOpen, setCatNumpadOpen] = useState(false);
   const [catSortOrder, setCatSortOrder] = useState(0);
+  const [excelOpen, setExcelOpen] = useState(false);
 
   const openCreate = () => {
     setForm(emptyForm);
@@ -149,6 +151,48 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
     }
   };
 
+  const handleExportExcel = async () => {
+    setBusy(true);
+    const res = await exportExcel();
+    setBusy(false);
+    if (res.ok && res.base64) {
+      const bin = atob(res.base64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const blob = new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `zafian-menu-bahan.xlsx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast("Excel terunduh", "success");
+    } else {
+      toast(res.error ?? "Gagal ekspor", "error");
+    }
+  };
+
+  const handleImportExcel = async (file: File) => {
+    setBusy(true);
+    const buf = await file.arrayBuffer();
+    let binary = "";
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const res = await importExcel(btoa(binary));
+    setBusy(false);
+    if (res.ok) {
+      toast(
+        `Impor selesai: menu +${res.menuCreated ?? 0} / ~${res.menuUpdated ?? 0}, bahan +${res.bahanCreated ?? 0} / ~${res.bahanUpdated ?? 0}`,
+        "success"
+      );
+      setExcelOpen(false);
+      router.refresh();
+    } else {
+      toast(res.error ?? "Gagal impor", "error");
+    }
+  };
+
   const ingMap = new Map(ingredients.map((i) => [i.id, i]));
 
   return (
@@ -158,7 +202,10 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
         subtitle={`${products.length} produk`}
         right={
           <div className="flex gap-2">
-            <Button size="sm" variant="dark" onClick={() => setCatOpen(true)}>
+            <Button size="sm" variant="dark" onClick={() => setExcelOpen(true)}>
+              📊 Excel
+            </Button>
+            <Button size="sm" variant="ghost" className="hidden border-2 border-ink lg:inline-flex" onClick={() => setCatOpen(true)}>
               + Kategori
             </Button>
             <Button size="sm" onClick={openCreate}>
@@ -363,6 +410,39 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
         <Button className="mt-3 w-full" disabled={busy || !catName.trim()} onClick={handleSaveCategory}>
           Simpan Kategori
         </Button>
+      </Sheet>
+
+      {/* Ekspor/Impor Excel */}
+      <Sheet open={excelOpen} onClose={() => setExcelOpen(false)} title="Menu & Bahan via Excel" maxWidth="max-w-md">
+        <div className="space-y-3">
+          <p className="rounded-xl border-[2.5px] border-ink bg-cream px-3 py-2.5 text-xs font-semibold text-ink/70">
+            Untuk onboarding massal: unduh template berisi data saat ini, edit di Excel/Google Sheets,
+            lalu impor kembali. Menu di-update berdasarkan <b>nama</b>; resep ditulis format
+            <code className="mx-1 rounded bg-white px-1 py-0.5 font-mono">Bahan=qty;Bahan2=qty</code>.
+            Impor bahan dijalankan dulu, jadi menu bisa merujuk bahan baru dalam file yang sama.
+          </p>
+          <Button variant="dark" className="w-full" disabled={busy} onClick={handleExportExcel}>
+            ⬇️ Unduh Excel (menu + bahan)
+          </Button>
+          <div>
+            <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink/70">
+              Impor file Excel
+            </span>
+            <input
+              type="file"
+              accept=".xlsx"
+              disabled={busy}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleImportExcel(f);
+              }}
+              className="w-full text-xs font-semibold"
+            />
+            <p className="mt-1 text-[10px] font-semibold text-ink/50">
+              Sheet "Menu" & "Bahan" diproses; baris dengan nama sama akan diperbarui.
+            </p>
+          </div>
+        </div>
       </Sheet>
 
       {/* Numpads */}

@@ -30,23 +30,36 @@ interface UserRow {
   hasPin: boolean;
 }
 
-type Tab = "toko" | "struk" | "transaksi" | "user";
+type Tab = "toko" | "branding" | "struk" | "transaksi" | "user";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "toko", label: "Toko", icon: "🏪" },
+  { id: "branding", label: "Branding", icon: "🎨" },
   { id: "struk", label: "Struk & Printer", icon: "🖨️" },
   { id: "transaksi", label: "Transaksi", icon: "💰" },
   { id: "user", label: "Pengguna", icon: "👥" },
+];
+
+/** Preset warna aksen yang sudah lolos WCAG AA (kontras ≥4.5:1 dengan ink #141414) */
+const ACCENT_PRESETS = [
+  { value: "#FFD93D", label: "Kuning" },
+  { value: "#C7F464", label: "Lime" },
+  { value: "#7CD1FF", label: "Biru langit" },
+  { value: "#FFB86B", label: "Oranye" },
+  { value: "#FF9EC3", label: "Pink muda" },
+  { value: "#9AF0E0", label: "Mint" },
 ];
 
 export function SettingsClient({
   meId,
   settings,
   users,
+  logoUrl,
 }: {
   meId: string;
   settings: SettingsInput;
   users: UserRow[];
+  logoUrl?: string;
 }) {
   const router = useRouter();
   const { toast } = useUI();
@@ -71,6 +84,9 @@ export function SettingsClient({
   }>({ name: "", email: "", role: "CASHIER", active: true, password: "", pin: "" });
 
   const [testReceipt, setTestReceipt] = useState<Awaited<ReturnType<typeof getTestReceipt>>["receipt"] | null>(null);
+
+  // logo yang dipakai untuk pratinjau tes struk: upload baru > tersimpan > kosong
+  const effectiveLogo = form.logoUrl || logoUrl || "";
 
   const handleSave = async () => {
     setBusy(true);
@@ -116,6 +132,21 @@ export function SettingsClient({
     const res = await toggleUserActive(u.id, !u.active);
     if (res.ok) router.refresh();
     else toast(res.error ?? "Gagal", "error");
+  };
+
+  const handleLogoUpload = async (file: File) => {
+    setBusy(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch("/api/upload", { method: "POST", body: fd });
+    const json = await res.json();
+    setBusy(false);
+    if (res.ok) {
+      setForm((f) => ({ ...f, logoUrl: json.url }));
+      toast("Logo terupload", "success");
+    } else {
+      toast(json.error ?? "Gagal upload", "error");
+    }
   };
 
   const storeFields = (
@@ -167,6 +198,104 @@ export function SettingsClient({
           </Card>
         )}
 
+        {/* ===== TAB BRANDING ===== */}
+        {tab === "branding" && (
+          <Card className="p-4">
+            <h2 className="mb-3 font-display text-sm font-bold uppercase tracking-wide">🎨 Branding</h2>
+            <div className="space-y-4">
+              {/* Logo */}
+              <div>
+                <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink/70">
+                  Logo Toko (tampil di sidebar/login & struk)
+                </span>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border-[2.5px] border-ink bg-white">
+                    {form.logoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={form.logoUrl} alt="Logo" className="h-full w-full object-contain p-1" />
+                    ) : (
+                      <span className="text-3xl opacity-40">🏪</span>
+                    )}
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleLogoUpload(f);
+                      }}
+                      className="w-full text-xs font-semibold"
+                    />
+                    {form.logoUrl && (
+                      <Button size="sm" variant="ghost" className="border-2 border-ink" onClick={() => setForm((f) => ({ ...f, logoUrl: "" }))}>
+                        Hapus Logo
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Warna aksen */}
+              <div>
+                <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink/70">
+                  Warna Aksen (tombol utama, highlight)
+                </span>
+                <div className="grid grid-cols-3 gap-2">
+                  {ACCENT_PRESETS.map((p) => (
+                    <button
+                      key={p.value}
+                      onClick={() => setForm((f) => ({ ...f, accentColor: p.value }))}
+                      className={cn(
+                        "flex items-center gap-2 rounded-lg border-[2.5px] px-2.5 py-2 text-left text-[11px] font-bold shadow-neo-sm transition-all active:translate-x-[1px] active:translate-y-[1px] active:shadow-none",
+                        form.accentColor === p.value ? "border-ink" : "border-ink/30"
+                      )}
+                    >
+                      <span
+                        className="h-6 w-6 shrink-0 rounded-md border-2 border-ink"
+                        style={{ backgroundColor: p.value }}
+                      />
+                      {p.label}
+                      {form.accentColor === p.value && <span className="ml-auto">✓</span>}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={form.accentColor}
+                    onChange={(e) => setForm((f) => ({ ...f, accentColor: e.target.value }))}
+                    className="h-10 w-14 cursor-pointer rounded-lg border-[2.5px] border-ink bg-white"
+                    title="Warna kustom"
+                  />
+                  <span className="num text-xs font-bold">{form.accentColor}</span>
+                  <span className="text-[10px] font-semibold text-ink/50">
+                    Preset di atas dijamin kontras WCAG AA dengan teks hitam.
+                  </span>
+                </div>
+              </div>
+
+              {/* Preview */}
+              <div className="rounded-xl border-[2.5px] border-ink bg-cream p-3">
+                <p className="mb-2 text-[10px] font-bold uppercase text-ink/50">Pratinjau</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="rounded-lg border-[2.5px] border-ink px-4 py-2 font-display text-sm font-bold uppercase shadow-neo-sm"
+                    style={{ backgroundColor: form.accentColor, color: "#141414" }}
+                  >
+                    Bayar Sekarang
+                  </button>
+                  <span className="text-xs font-semibold text-ink/60">← teks tetap hitam agar selalu terbaca</span>
+                </div>
+              </div>
+
+              <Button className="w-full" disabled={busy} onClick={handleSave}>
+                {busy ? "Menyimpan…" : "Simpan Branding"}
+              </Button>
+            </div>
+          </Card>
+        )}
+
         {/* ===== TAB STRUK & PRINTER ===== */}
         {tab === "struk" && (
           <Card className="p-4">
@@ -215,6 +344,27 @@ export function SettingsClient({
                   </span>
                 </span>
               </label>
+
+              <label className="flex items-center gap-2 rounded-lg border-[2.5px] border-ink bg-white px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  checked={form.useQzTray}
+                  onChange={(e) => setForm((f) => ({ ...f, useQzTray: e.target.checked }))}
+                  className="h-4 w-4 accent-yellow-400"
+                />
+                <span className="text-sm font-bold">
+                  Cetak via QZ Tray (ESC/POS)
+                  <span className="block text-[11px] font-semibold text-ink/50">
+                    Langsung ke printer tanpa dialog — butuh aplikasi QZ Tray ter-install di perangkat kasir (qz.io)
+                  </span>
+                </span>
+              </label>
+              {form.useQzTray && (
+                <p className="rounded-lg border-2 border-dashed border-ink/40 bg-cream px-3 py-2 text-[11px] font-semibold text-ink/60">
+                  Pastikan QZ Tray berjalan dan mengizinkan koneksi dari situs ini.
+                  Printer yang dipakai: <b>{form.printerName || "printer pertama yang ditemukan"}</b>.
+                </p>
+              )}
 
               <Button variant="dark" className="w-full" disabled={busy} onClick={handleTestPrint}>
                 🧪 Tes Cetak Struk
@@ -390,7 +540,10 @@ export function SettingsClient({
           footer: form.footerReceipt,
           receiptSize: form.receiptSize,
           autoPrint: form.autoPrint,
+          logoUrl: effectiveLogo,
         }}
+        useQzTray={form.useQzTray}
+        qzPrinter={form.printerName}
         title="Tes Struk"
       />
     </div>

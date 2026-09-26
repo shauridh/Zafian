@@ -16,6 +16,8 @@ import {
   recordCashMovement,
   type ActiveShift,
 } from "./actions";
+import { getShiftReport, type ShiftReportData } from "./report-actions";
+import { ShiftReportPaper } from "./ShiftReportPaper";
 import { formatRupiah, formatDateTime } from "@/lib/utils";
 
 interface ShiftHistory {
@@ -60,6 +62,7 @@ export function ShiftClient({
   const [noteOpen, setNoteOpen] = useState(false);
   const [pendingCashAmount, setPendingCashAmount] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [report, setReport] = useState<ShiftReportData | null>(null);
 
   const load = useCallback(async () => {
     const data = await getActiveShiftData();
@@ -106,6 +109,8 @@ export function ShiftClient({
 
   const handleCloseShift = async (amount: number) => {
     setBusy(true);
+    // ambil id shift aktif sebelum ditutup untuk laporan
+    const current = shift;
     const res = await closeShift(amount);
     setBusy(false);
     if (res.ok) {
@@ -116,6 +121,11 @@ export function ShiftClient({
         res.difference === 0 ? "success" : "info"
       );
       setShift(null);
+      // muat rekap shift untuk ditawarkan cetak
+      if (current) {
+        const rep = await getShiftReport(current.id);
+        if (rep) setReport(rep);
+      }
       router.refresh();
     } else {
       toast(res.error ?? "Gagal menutup shift", "error");
@@ -267,6 +277,31 @@ export function ShiftClient({
           handleCloseShift(v);
         }}
       />
+
+      {/* Rekap shift — muncul setelah tutup shift, bisa dicetak */}
+      <Sheet
+        open={!!report}
+        onClose={() => setReport(null)}
+        title="Rekap Shift"
+        maxWidth="max-w-xs"
+      >
+        {report && (
+          <>
+            <div className="mb-2 flex justify-center">
+              <button
+                onClick={() => window.print()}
+                title="Cetak rekap"
+                className="flex h-10 w-10 items-center justify-center rounded-lg border-[2.5px] border-ink bg-ink text-lg text-white shadow-neo-sm active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+              >
+                🖨️
+              </button>
+            </div>
+            <div className="print-area max-h-[55dvh] overflow-y-auto rounded-xl bg-cream p-2">
+              <ShiftReportPaper data={report} />
+            </div>
+          </>
+        )}
+      </Sheet>
 
       {/* Input keterangan kas */}
       <Sheet open={noteOpen} onClose={() => setNoteOpen(false)} title={cashNoteType === "IN" ? "Kas Masuk" : "Kas Keluar"} maxWidth="max-w-sm">

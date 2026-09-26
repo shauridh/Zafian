@@ -40,6 +40,9 @@ export default async function PosPage() {
         footer: settings?.footerReceipt ?? "",
         receiptSize: settings?.receiptSize ?? 58,
         autoPrint: settings?.autoPrint ?? true,
+        logoUrl: settings?.logoUrl ?? "",
+        useQzTray: settings?.useQzTray ?? false,
+        printerName: settings?.printerName ?? "",
       }}
       hasActiveShift={!!activeShift}
       shiftOwner={activeShift?.userId}

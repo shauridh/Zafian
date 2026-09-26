@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { createClient } from "@supabase/supabase-js";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 import crypto from "crypto";
 
+/**
+ * Upload gambar produk.
+ * - Produksi (Vercel): Supabase Storage — butuh SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
+ * - Dev fallback: filesystem lokal public/uploads (Vercel read-only, tidak tersedia).
+ */
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
@@ -27,11 +33,39 @@ export async function POST(req: Request) {
 
   const bytes = Buffer.from(await file.arrayBuffer());
   const ext = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
-  const name = `${crypto.randomBytes(8).toString("hex")}.${ext}`;
+  const name = `products/${crypto.randomBytes(8).toString("hex")}.${ext}`;
 
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const bucket = process.env.SUPABASE_BUCKET || "product-images";
+
+  // --- Jalur Supabase Storage (produksi) ---
+  if (supabaseUrl && supabaseKey) {
+    try {
+      const supabase = createClient(supabaseUrl, supabaseKey, {
+        auth: { persistSession: false },
+      });
+
+      const { error } = await supabase.storage.from(bucket).upload(name, bytes, {
+        contentType: file.type,
+        upsert: false,
+      });
+      if (error) {
+        return NextResponse.json({ error: `Storage: ${error.message}` }, { status: 500 });
+      }
+
+      const { data } = supabase.storage.from(bucket).getPublicUrl(name);
+      return NextResponse.json({ url: data.publicUrl });
+    } catch (e) {
+      console.error("upload supabase error", e);
+      return NextResponse.json({ error: "Gagal upload ke storage" }, { status: 500 });
+    }
+  }
+
+  // --- Fallback lokal (development) ---
+  const localName = `${crypto.randomBytes(8).toString("hex")}.${ext}`;
   const dir = path.join(process.cwd(), "public", "uploads");
   await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, name), bytes);
-
-  return NextResponse.json({ url: `/uploads/${name}` });
+  await writeFile(path.join(dir, localName), bytes);
+  return NextResponse.json({ url: `/uploads/${localName}` });
 }

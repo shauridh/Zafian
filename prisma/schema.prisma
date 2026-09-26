@@ -185,6 +185,8 @@ model Settings {
   defaultOpeningCash Int    @default(350000)
   autoPrint          Boolean @default(true) // otomatis buka dialog print setelah bayar
   printerName        String @default("") // nama printer thermal (referensi)
+  accentColor        String  @default("#FFD93D") // warna aksen utama (WCAG-checked dengan ink)
+  useQzTray          Boolean @default(false) // cetak via QZ Tray (ESC/POS, tanpa dialog)
 }
 
 model AuditLog {

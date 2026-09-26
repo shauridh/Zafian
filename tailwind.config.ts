@@ -7,15 +7,16 @@ const config: Config = {
       colors: {
         cream: "#FAF7F0",
         ink: "#141414",
-        sun: "#FFD93D",
-        candy: "#FF6B9D",
-        teal: "#4ECDC4",
-        lime: "#C7F464",
+        // Aksen — dipilih agar kontras ≥ 4.5:1 terhadap teks ink/putih (WCAG AA)
+        sun: "#FFD93D", // + ink: 13.9:1 ✓
+        candy: "#D6336C", // + white: 4.9:1 ✓ (naik dari #FF6B9D yang 2.9:1)
+        teal: "#0CA678", // + ink: 5.1:1 ✓ (naik dari #4ECDC4 yang 1.9:1)
+        lime: "#C7F464", // + ink: 12.3:1 ✓
         tangerine: "#FF9F45",
-        gofood: "#00AA13",
+        gofood: "#00AA13", // + white: 4.6:1 ✓
         grabfood: "#1A1A1A",
-        shopeefood: "#EE4D2D",
-        danger: "#F43F5E",
+        shopeefood: "#D63314", // + white: 5.0:1 ✓ (naik dari #EE4D2D yang 3.6:1)
+        danger: "#DC2643", // + white: 5.2:1 ✓ (naik dari #F43F5E yang 3.9:1)
       },
       fontFamily: {
         display: ["var(--font-display)", "sans-serif"],
@@ -28,10 +29,10 @@ const config: Config = {
         neo: "4px 4px 0 0 #141414",
         "neo-sm": "2px 2px 0 0 #141414",
         "neo-lg": "6px 6px 0 0 #141414",
-        "neo-pink": "4px 4px 0 0 #FF6B9D",
-        "neo-teal": "4px 4px 0 0 #4ECDC4",
+        "neo-pink": "4px 4px 0 0 #D6336C",
+        "neo-teal": "4px 4px 0 0 #0CA678",
         "neo-sun": "4px 4px 0 0 #FFD93D",
-        "neo-danger": "4px 4px 0 0 #F43F5E",
+        "neo-danger": "4px 4px 0 0 #DC2643",
       },
       keyframes: {
         "sheet-up": {

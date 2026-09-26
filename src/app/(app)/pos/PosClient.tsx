@@ -34,6 +34,9 @@ interface PosClientProps {
     footer: string;
     receiptSize: number;
     autoPrint: boolean;
+    logoUrl: string;
+    useQzTray: boolean;
+    printerName: string;
   };
 }
 
@@ -267,7 +270,7 @@ export function PosClient(p: PosClientProps) {
       {items.length > 0 && (
         <button
           onClick={() => setCartOpen(true)}
-          className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-3 z-30 flex items-center gap-2 rounded-2xl border-[2.5px] border-ink bg-sun px-4 py-3 font-display font-bold shadow-neo-lg active:translate-x-[3px] active:translate-y-[3px] active:shadow-none lg:hidden"
+          className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-3 z-30 flex items-center gap-2 rounded-2xl border-[2.5px] border-ink bg-accent px-4 py-3 font-display font-bold shadow-neo-lg active:translate-x-[3px] active:translate-y-[3px] active:shadow-none lg:hidden"
         >
           🛒 {totalQty} item · {formatRupiah(total)}
         </button>
@@ -348,6 +351,8 @@ export function PosClient(p: PosClientProps) {
         order={receipt}
         store={p.store}
         autoPrint={p.store.autoPrint}
+        useQzTray={p.store.useQzTray}
+        qzPrinter={p.store.printerName}
       />
 
       {/* Processing overlay */}

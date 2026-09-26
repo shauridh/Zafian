@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
-import { formatRupiah } from "@/lib/utils";
+import { useEffect, useState } from "react";
+import { formatRupiah, orderTypeLabel, formatDateTime } from "@/lib/utils";
+import { qzAvailable, qzPrintReceipt } from "@/lib/qz";
+import { useUI } from "@/store/ui";
 import { Sheet } from "@/components/ui/Sheet";
 import { ReceiptPaper, type ReceiptOrderData, type ReceiptStoreData } from "./ReceiptPaper";
 
@@ -18,6 +20,8 @@ export function ReceiptModal({
   autoPrint,
   title = "Struk",
   footer,
+  useQzTray,
+  qzPrinter,
 }: {
   open: boolean;
   onClose: () => void;
@@ -26,15 +30,61 @@ export function ReceiptModal({
   autoPrint?: boolean;
   title?: string;
   footer?: React.ReactNode;
+  useQzTray?: boolean;
+  qzPrinter?: string;
 }) {
+  const { toast } = useUI();
+  const [qzBusy, setQzBusy] = useState(false);
+
+  const size: 58 | 80 = store.receiptSize === 80 ? 80 : 58;
+
+  const printViaQz = async () => {
+    if (!order) return;
+    setQzBusy(true);
+    try {
+      await qzPrintReceipt({
+        printer: qzPrinter || undefined,
+        storeName: store.name,
+        storeAddress: store.address || undefined,
+        storePhone: store.phone || undefined,
+        logoUrl: store.logoUrl || undefined,
+        orderNo: order.orderNo,
+        createdAt: formatDateTime(order.createdAt),
+        cashierName: order.cashierName,
+        orderTypeLabel: orderTypeLabel(order.orderType),
+        items: order.items,
+        subtotal: order.subtotal,
+        discount: order.discount,
+        tax: order.tax,
+        total: order.total,
+        paymentLabel:
+          order.paymentMethod === "CASH" ? "Tunai" : order.paymentMethod === "QRIS" ? "QRIS" : "Ojol",
+        cashReceived: order.cashReceived,
+        change: order.change,
+        footer: store.footer || undefined,
+        widthMm: size,
+      });
+      toast("Struk terkirim ke printer", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Gagal cetak via QZ Tray", "error");
+    } finally {
+      setQzBusy(false);
+    }
+  };
+
   // Auto-print sekali saat dibuka dari alur checkout (jika diaktifkan di pengaturan)
   useEffect(() => {
     if (!open || !autoPrint || !order) return;
-    const t = setTimeout(() => window.print(), 500);
+    const t = setTimeout(() => {
+      if (useQzTray) {
+        printViaQz();
+      } else {
+        window.print();
+      }
+    }, 500);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, autoPrint, order]);
-
-  const size: 58 | 80 = store.receiptSize === 80 ? 80 : 58;
 
   if (!order) return null;
 
@@ -59,11 +109,12 @@ export function ReceiptModal({
       {/* Tombol icon-only: cetak & WhatsApp */}
       <div className="mb-2 flex items-center justify-center gap-2">
         <button
-          onClick={() => window.print()}
-          title="Cetak struk"
-          className="flex h-10 w-10 items-center justify-center rounded-lg border-[2.5px] border-ink bg-ink text-lg text-white shadow-neo-sm transition-all active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+          onClick={() => (useQzTray ? printViaQz() : window.print())}
+          disabled={qzBusy}
+          title={useQzTray ? "Cetak via QZ Tray (langsung ke printer)" : "Cetak struk"}
+          className="flex h-10 w-10 items-center justify-center rounded-lg border-[2.5px] border-ink bg-ink text-lg text-white shadow-neo-sm transition-all active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:opacity-50"
         >
-          🖨️
+          {qzBusy ? "⏳" : "🖨️"}
         </button>
         <a
           href={`https://wa.me/?text=${waText}`}

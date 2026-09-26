@@ -70,8 +70,8 @@ export default function LoginPage() {
     <div className="flex min-h-dvh items-center justify-center bg-cream p-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-2xl border-[3px] border-ink bg-sun text-4xl shadow-neo">
-            ☕
+          <div className="mx-auto mb-3 flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl border-[3px] border-ink bg-sun text-4xl shadow-neo">
+            <span>☕</span>
           </div>
           <h1 className="font-display text-3xl font-bold tracking-tight">
             Zafian<span className="bg-candy px-1 text-white">POS</span>

@@ -27,7 +27,11 @@ export default async function SettingsPage() {
         defaultOpeningCash: settings?.defaultOpeningCash ?? 350000,
         autoPrint: settings?.autoPrint ?? true,
         printerName: settings?.printerName ?? "",
+        accentColor: settings?.accentColor ?? "#FFD93D",
+        logoUrl: settings?.logoUrl ?? "",
+        useQzTray: settings?.useQzTray ?? false,
       }}
+      logoUrl={settings?.logoUrl ?? ""}
       users={users.map((u) => ({
         id: u.id,
         name: u.name,

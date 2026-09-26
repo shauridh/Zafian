@@ -28,6 +28,7 @@ export interface ReceiptStoreData {
   footer: string;
   receiptSize: number;
   autoPrint?: boolean;
+  logoUrl?: string;
 }
 
 export function ReceiptPaper({
@@ -53,6 +54,14 @@ export function ReceiptPaper({
     >
       <div className={pad}>
         <div className="text-center">
+          {store.logoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={store.logoUrl}
+              alt="Logo"
+              className="mx-auto mb-1 h-14 w-14 object-contain"
+            />
+          )}
           <p className="font-display text-base font-bold uppercase leading-tight">{store.name}</p>
           {store.address && <p className="mt-0.5 leading-snug opacity-70">{store.address}</p>}
           {store.phone && <p className="leading-snug opacity-70">Telp: {store.phone}</p>}
