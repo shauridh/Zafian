@@ -19,9 +19,15 @@ export const authOptions: NextAuthOptions = {
         const password = creds?.password;
         if (!email || !password) return null;
         const user = await prisma.user.findUnique({ where: { email } });
-        if (!user || !user.active) return null;
+        if (!user || !user.active) {
+          console.warn("[auth] login email gagal: user tidak ditemukan/Nonaktif:", email);
+          return null;
+        }
         const ok = await bcrypt.compare(password, user.password);
-        if (!ok) return null;
+        if (!ok) {
+          console.warn("[auth] login email gagal: password salah:", email);
+          return null;
+        }
         return { id: user.id, name: user.name, email: user.email, role: user.role };
       },
     }),
@@ -34,13 +40,21 @@ export const authOptions: NextAuthOptions = {
       async authorize(creds) {
         const pin = creds?.pin;
         if (!pin) return null;
-        const users = await prisma.user.findMany({ where: { active: true, pinHash: { not: null } } });
-        for (const user of users) {
-          if (user.pinHash && (await bcrypt.compare(pin, user.pinHash))) {
-            return { id: user.id, name: user.name, email: user.email, role: user.role };
+        try {
+          const users = await prisma.user.findMany({ where: { active: true, pinHash: { not: null } } });
+          console.log("[auth] PIN login attempt: kandidat aktif dengan PIN =", users.length);
+          for (const user of users) {
+            if (user.pinHash && (await bcrypt.compare(pin, user.pinHash))) {
+              return { id: user.id, name: user.name, email: user.email, role: user.role }; 
+            }
           }
+          console.warn("[auth] PIN tidak cocok dengan user manapun");
+          return null;
+        } catch (e) {
+          // Gagal koneksi DB di produksi akan tampak sebagai "PIN salah" di UI.
+          console.error("[auth] DB error saat verifikasi PIN:", e instanceof Error ? e.message : e);
+          return null;
         }
-        return null;
       },
     }),
   ],
