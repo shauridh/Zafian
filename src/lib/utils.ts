@@ -1,5 +1,12 @@
+import { twMerge } from "tailwind-merge";
+
+/**
+ * Gabung className dengan resolve konflik Tailwind (yang terakhir menang).
+ * Mis. cn("bg-white text-ink", "bg-danger text-white") → "bg-danger text-white",
+ * sehingga Badge/Button berwarna tidak berakhir latar & teks sama-sama putih.
+ */
 export function cn(...classes: Array<string | false | null | undefined>): string {
-  return classes.filter(Boolean).join(" ");
+  return twMerge(classes.filter(Boolean).join(" "));
 }
 
 export function formatRupiah(n: number): string {
