@@ -12,7 +12,7 @@ import { Numpad } from "@/components/ui/Numpad";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
 import { ReceiptPaper } from "@/components/pos/ReceiptPaper";
 import { useUI } from "@/store/ui";
-import { btPrintReceipt, btSavedName, btSendRaw } from "@/lib/bt-printer";
+import { btPrintReceipt, btSavedName, btSendRaw, btEnsureConnected } from "@/lib/bt-printer";
 import {
   saveSettings,
   saveUser,
@@ -87,6 +87,7 @@ export function SettingsClient({
 
   const [testReceipt, setTestReceipt] = useState<Awaited<ReturnType<typeof getTestReceipt>>["receipt"] | null>(null);
   const [calBusy, setCalBusy] = useState(false);
+  const [btBusy, setBtBusy] = useState(false);
   const btSavedPrinter = btSavedName();
 
   // logo yang dipakai untuk pratinjau tes struk: upload baru > tersimpan > kosong
@@ -480,10 +481,39 @@ export function SettingsClient({
                 </span>
               </label>
               {form.useBtPrinter && (
-                <p className="rounded-lg border-2 border-dashed border-ink/40 bg-cream px-3 py-2 text-[11px] font-semibold text-ink/60">
-                  Aktif hanya di Chrome/Edge + HTTPS. Saat tes cetak pertama, dialog browser akan
-                  meminta izin memilih printer — perangkat diingat untuk sesi berikutnya.
-                </p>
+                <div className="space-y-2 rounded-lg border-2 border-dashed border-ink/40 bg-cream px-3 py-2.5 text-[11px] font-semibold text-ink/60">
+                  <p>
+                    Aktif di Chrome/Edge (Android/desktop) + HTTPS. Dialog pilih printer hanya
+                    muncul <b>sekali</b> — setelah itu app menyambung otomatis dan cetak struk
+                    tanpa dialog & tanpa tap.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="dark"
+                      disabled={btBusy}
+                      onClick={async () => {
+                        setBtBusy(true);
+                        try {
+                          const ok = await btEnsureConnected();
+                          if (ok) toast("Printer Bluetooth tersambung ✓", "success");
+                          else toast("Belum bisa tersambung senyap — pilih printer dulu via 🧪 Tes Struk", "info");
+                        } catch (e) {
+                          toast(e instanceof Error ? e.message : "Gagal menyambung", "error");
+                        } finally {
+                          setBtBusy(false);
+                        }
+                      }}
+                    >
+                      {btBusy ? "Menyambung…" : "🔗 Sambungkan Printer"}
+                    </Button>
+                    {btSavedPrinter && (
+                      <span className="text-[10px]">
+                        Tersimpan: <b>{btSavedPrinter}</b>
+                      </span>
+                    )}
+                  </div>
+                </div>
               )}
 
               {/* ===== PERATAAN HEADER ===== */}

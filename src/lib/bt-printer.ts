@@ -60,9 +60,12 @@ async function connectDevice(forcePick = false): Promise<any> {
   return connectGatt(device);
 }
 
+let cached: { server: any; char: any } | null = null;
+
 async function connectGatt(device: any): Promise<any> {
   device.addEventListener?.("gattserverdisconnected", () => {
     console.warn("[bt] printer terputus:", device.name);
+    cached = null;
   });
   const server = await device.gatt.connect();
   // Coba service yang umum dipakai printer thermal
@@ -90,6 +93,30 @@ async function connectGatt(device: any): Promise<any> {
   throw new Error("Characteristic printer tidak ditemukan. Printer mungkin tidak kompatibel BLE print.");
 }
 
+/**
+ * Pastikan printer siap tanpa dialog: kalau perangkat sudah pernah diizinkan
+ * (sudah pernah dipilih lewat dialog), Chrome mengizinkan reconnect senyap via
+ * navigator.bluetooth.getDevices() — TANPA user gesture.
+ * Dipanggil otomatis saat halaman kasir dibuka.
+ */
+export async function btEnsureConnected(): Promise<boolean> {
+  if (!btSavedName()) return false;
+  if (cached?.server?.connected) return true;
+  try {
+    const bt = (navigator as any).bluetooth;
+    if (!bt?.getDevices) return false;
+    const devices = await bt.getDevices();
+    const found = (devices as any[]).find((d) => d.name === btSavedName());
+    if (!found) return false;
+    cached = await connectGatt(found);
+    return true;
+  } catch (e) {
+    console.warn("[bt] auto-connect gagal (printer mati/di luar jangkauan):", e);
+    cached = null;
+    return false;
+  }
+}
+
 /** Kirim byte ESC/POS dalam chunk ≤20 byte (MTU BLE default aman) dengan jeda kecil. */
 async function writeData(char: any, data: Uint8Array): Promise<void> {
   const CHUNK = 20;
@@ -111,8 +138,13 @@ export async function btTestPrint(): Promise<void> {
 
 /** Kirim byte mentah (mis. pola kalibrasi) ke printer Bluetooth. */
 export async function btSendRaw(bytes: Uint8Array): Promise<void> {
-  const { char } = await connectDevice();
-  await writeData(char, bytes);
+  if (cached?.server?.connected) {
+    await writeData(cached.char, bytes);
+    return;
+  }
+  const conn = await connectDevice();
+  cached = conn;
+  await writeData(conn.char, bytes);
 }
 
 /* ========================= PERATAAN =========================
@@ -256,6 +288,12 @@ export function buildReceiptBytes(opts: BtReceiptOptions): Uint8Array {
 
 /** Cetak struk ESC/POS via Bluetooth. */
 export async function btPrintReceipt(opts: BtReceiptOptions): Promise<void> {
-  const { char } = await connectDevice();
-  await writeData(char, buildReceiptBytes(opts));
+  // Pakai koneksi cache bila masih hidup → tanpa dialog & tanpa gesture.
+  if (cached?.server?.connected) {
+    await writeData(cached.char, buildReceiptBytes(opts));
+    return;
+  }
+  const conn = await connectDevice();
+  cached = conn;
+  await writeData(conn.char, buildReceiptBytes(opts));
 }

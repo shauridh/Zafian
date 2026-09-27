@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { formatRupiah, orderTypeLabel, formatDateTime } from "@/lib/utils";
 import { qzAvailable, qzPrintReceipt } from "@/lib/qz";
-import { btPrintReceipt } from "@/lib/bt-printer";
+import { btPrintReceipt, btEnsureConnected, btSavedName } from "@/lib/bt-printer";
 import { useUI } from "@/store/ui";
 import { Sheet } from "@/components/ui/Sheet";
 import { ReceiptPaper, type ReceiptOrderData, type ReceiptStoreData } from "./ReceiptPaper";
@@ -102,12 +102,21 @@ export function ReceiptModal({
   };
 
   // Auto-print sekali saat dibuka dari alur checkout (jika diaktifkan di pengaturan).
-  // Bluetooth tidak bisa auto: Web Bluetooth wajib dipicu klik user (kebijakan browser).
+  // Bluetooth: cetak senyap kalau koneksi sudah siap (perangkat pernah diizinkan).
+  // Kalau belum, cukup sekali tap 🖨️ untuk memicu dialog pilih printer pertama kali.
   useEffect(() => {
     if (!open || !autoPrint || !order) return;
     if (useBtPrinter) {
-      toast("Cetak struk via tombol 🖨️ (Bluetooth butuh konfirmasi browser)", "info");
-      return;
+      let cancelled = false;
+      (async () => {
+        const ok = await btEnsureConnected();
+        if (cancelled) return;
+        if (ok) printViaBt();
+        else if (btSavedName()) toast("Printer Bluetooth belum tersambung — tap 🖨️ untuk cetak", "info");
+      })();
+      return () => {
+        cancelled = true;
+      };
     }
     const t = setTimeout(() => {
       if (useQzTray) {
