@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import type { SessionUser } from "@/lib/types";
 import { Sheet } from "@/components/ui/Sheet";
 import { BtIndicator } from "@/components/pos/BtIndicator";
+import { InstallPrompt } from "@/components/pwa/InstallPrompt";
 
 interface NavItem {
   href: string;
@@ -148,6 +149,7 @@ export function AppShell({
 
       {/* Sheet Lainnya — halaman yang tidak muat di bottom nav */}
       <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} title="Menu Lainnya" maxWidth="max-w-sm">
+        <InstallPrompt />
         <div className="grid grid-cols-3 gap-2">
           {items.map((item) => (
             <Link
@@ -164,6 +166,9 @@ export function AppShell({
             </Link>
           ))}
         </div>
+        <p className="mt-3 text-center text-[10px] font-semibold text-ink/50">
+          Pasang app ke home screen agar kasir tampil full screen tanpa address bar.
+        </p>
       </Sheet>
     </div>
   );

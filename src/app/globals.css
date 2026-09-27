@@ -28,6 +28,23 @@ body {
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
   touch-action: manipulation;
+  /* Full-screen PWA: isi sampai ke belakang status bar Android */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Kunci tinggi app = viewport visual (menyesuaikan saat address bar hilang).
+   Semua halaman kasir memakai h-[100dvh] dengan scroll internal saja. */
+html,
+body {
+  overflow: hidden;
+}
+
+/* Halaman non-kasir (riwayat, produk, dll.) scroll sendiri di dalam main */
+main {
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
 }
 
 /* Angka selalu mono agar rapi */
@@ -83,6 +100,17 @@ body {
 }
 
 @media print {
+  /* Full-screen lock & safe-area padding tidak berlaku saat cetak */
+  html,
+  body {
+    overflow: visible !important;
+    height: auto !important;
+    padding: 0 !important;
+  }
+  main {
+    height: auto !important;
+    overflow: visible !important;
+  }
   body {
     background: #fff !important;
   }

@@ -259,7 +259,7 @@ export function PosClient(p: PosClientProps) {
   );
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden">
+    <div className="flex h-[100dvh] flex-col overflow-hidden" style={{ height: "100dvh" }}>
       {/* Alert shift */}
       {!p.hasActiveShift && (
         <div className="shrink-0 border-b-[2.5px] border-ink bg-sun px-4 py-2.5">
