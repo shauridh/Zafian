@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { SessionProvider } from "next-auth/react";
 import { Toaster } from "@/components/ui/Toaster";
+import { KioskController } from "@/components/pwa/KioskController";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -13,6 +14,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <SessionProvider>
+      <KioskController />
       {children}
       <Toaster />
     </SessionProvider>

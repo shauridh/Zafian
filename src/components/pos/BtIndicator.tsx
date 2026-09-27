@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useBtPrinter, type BtStatus } from "@/store/bt-printer";
-import { btEnsureConnected, btSavedName } from "@/lib/bt-printer";
+import { btReconnectInteractive, btSavedName, btEnsureConnected } from "@/lib/bt-printer";
 import { useUI } from "@/store/ui";
 
 /**
@@ -37,10 +37,16 @@ export function BtIndicator() {
     if (busy || status === "connected" || status === "unsupported") return;
     setBusy(true);
     setStatus("connecting");
-    const ok = await btEnsureConnected();
-    if (ok) toast("Printer tersambung ✓", "success");
-    else setStatus("disconnected");
-    setBusy(false);
+    try {
+      // Senyap dulu; kalau gagal → dialog pilih printer langsung dari klik ini
+      const ok = await btReconnectInteractive();
+      if (ok) toast("Printer tersambung ✓", "success");
+    } catch (e) {
+      setStatus("disconnected");
+      toast(e instanceof Error ? e.message : "Gagal menyambung printer", "error");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const title =

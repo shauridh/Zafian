@@ -10,6 +10,7 @@ import type { SessionUser } from "@/lib/types";
 import { Sheet } from "@/components/ui/Sheet";
 import { BtIndicator } from "@/components/pos/BtIndicator";
 import { InstallPrompt } from "@/components/pwa/InstallPrompt";
+import { KioskToggle } from "@/components/pwa/KioskToggle";
 
 interface NavItem {
   href: string;
@@ -150,6 +151,7 @@ export function AppShell({
       {/* Sheet Lainnya — halaman yang tidak muat di bottom nav */}
       <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} title="Menu Lainnya" maxWidth="max-w-sm">
         <InstallPrompt />
+        <KioskToggle />
         <div className="grid grid-cols-3 gap-2">
           {items.map((item) => (
             <Link
@@ -168,6 +170,7 @@ export function AppShell({
         </div>
         <p className="mt-3 text-center text-[10px] font-semibold text-ink/50">
           Pasang app ke home screen agar kasir tampil full screen tanpa address bar.
+          Mode Kios menjaga layar tetap nyala agar koneksi printer Bluetooth stabil.
         </p>
       </Sheet>
     </div>

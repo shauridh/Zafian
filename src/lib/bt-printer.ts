@@ -82,6 +82,32 @@ async function connectDevice(forcePick = false): Promise<any> {
   return connectGattResilient(device);
 }
 
+/**
+ * Reconnect dari klik user: coba senyap dulu; kalau gagal → LANGSUNG buka dialog
+ * pilih printer dari klik itu (tanpa harus ke Settings / test print).
+ * Dipakai tombol icon printer di sidebar.
+ */
+export async function btReconnectInteractive(): Promise<boolean> {
+  const btStore = useBtPrinter.getState();
+  // 1) Coba senyap (perangkat yang sudah pernah diizinkan, tanpa dialog)
+  const silent = await btEnsureConnected().catch(() => false);
+  if (silent) return true;
+  // 2) Gagal → dialog pilih printer (klik user = gesture valid untuk requestDevice)
+  btStore.setStatus("connecting");
+  try {
+    const device = await pickDevice();
+    localStorage.setItem(STORAGE_KEY, device.name || "Printer Bluetooth");
+    cached = await connectGattResilient(device);
+    return true;
+  } catch (e) {
+    btStore.setStatus("disconnected");
+    // User membatalkan dialog → pesan khusus, bukan error berat
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("cancel")) throw new Error("Pemilihan printer dibatalkan");
+    throw e instanceof Error ? e : new Error(msg);
+  }
+}
+
 let cached: { server: any; char: any } | null = null;
 
 /**
