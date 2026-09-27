@@ -82,6 +82,15 @@ export function IngredientsClient({
 
   const lowStock = ingredients.filter((i) => i.stock <= i.minStock);
 
+  /** Tampilan stok: satuan jual + ekuivalen satuan beli (mis. "90 pcs ≈ 10 pack"). */
+  const stockLabel = (i: IngredientRow) => {
+    if (!i.purchaseUnit || !i.purchaseQty || i.purchaseQty <= 0) {
+      return `${formatNumber(i.stock)} ${i.unit}`;
+    }
+    const packs = Math.round((i.stock / i.purchaseQty) * 10) / 10;
+    return `${formatNumber(i.stock)} ${i.unit} ≈ ${formatNumber(packs)} ${i.purchaseUnit}`;
+  };
+
   const openCreate = () => {
     setForm(emptyForm);
     setFormOpen(true);
@@ -199,7 +208,7 @@ export function IngredientsClient({
         {lowStock.length > 0 && (
           <div className="rounded-xl border-[2.5px] border-ink bg-danger px-4 py-3 text-white shadow-neo">
             <p className="text-sm font-bold">
-              ⚠️ Stok menipis: {lowStock.map((i) => `${i.name} (${formatNumber(i.stock)} ${i.unit})`).join(", ")}
+              ⚠️ Stok menipis: {lowStock.map((i) => `${i.name} (${stockLabel(i)})`).join(", ")}
             </p>
           </div>
         )}
@@ -214,6 +223,11 @@ export function IngredientsClient({
                     {formatNumber(i.stock)}{" "}
                     <span className="text-xs font-semibold text-ink/50">{i.unit}</span>
                   </p>
+                  {i.purchaseUnit && i.purchaseQty ? (
+                    <p className="text-[11px] font-semibold text-ink/50">
+                      ≈ {formatNumber(Math.round((i.stock / i.purchaseQty) * 10) / 10)} {i.purchaseUnit} tersedia
+                    </p>
+                  ) : null}
                   <p className="text-[11px] font-semibold text-ink/50">
                     HPP/{i.unit} {formatRupiah(i.costPerUnit)}
                     {i.purchaseUnit && i.purchaseQty
@@ -388,6 +402,7 @@ export function IngredientsClient({
             ? `dalam ${stockInTarget.purchaseUnit} (1 ${stockInTarget.purchaseUnit} = ${formatNumber(stockInTarget.purchaseQty ?? 0)} ${stockInTarget.unit})`
             : `dalam ${stockInTarget?.unit ?? ""}`
         }
+        quickAmounts={stockInTarget?.purchaseUnit ? [1, 5, 10] : undefined}
         confirmLabel="Tambah Stok"
         onSubmit={handleStockIn}
       />
@@ -400,7 +415,11 @@ export function IngredientsClient({
           setAdjustTarget(null);
         }}
         title={`Stok Fisik: ${adjustTarget?.name ?? ""}`}
-        subtitle={`Masukkan stok hasil hitung fisik (${adjustTarget?.unit ?? ""})`}
+        subtitle={
+          adjustTarget?.purchaseUnit && adjustTarget.purchaseQty
+            ? `stok fisik dalam ${adjustTarget.unit} (1 ${adjustTarget.purchaseUnit} = ${formatNumber(adjustTarget.purchaseQty)} ${adjustTarget.unit})`
+            : `Masukkan stok hasil hitung fisik (${adjustTarget?.unit ?? ""})`
+        }
         confirmLabel="Lanjut Isi Alasan"
         onSubmit={(qty) => {
           setPendingQty(qty);
