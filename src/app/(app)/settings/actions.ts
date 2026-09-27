@@ -214,3 +214,115 @@ export async function toggleUserActive(id: string, active: boolean): Promise<{ o
   revalidatePath("/settings");
   return { ok: true };
 }
+
+// ===== Hapus data (zona berbahaya, ber-PIN) =====
+
+export type PurgeScope = "transactions" | "shifts" | "ingredients" | "products" | "all";
+
+/**
+ * Hapus data secara permanen sesuai scope. Membutuhkan PIN owner/admin:
+ * PIN dicocokkan ke user yang login ATAU user ber-role OWNER yang aktif.
+ */
+export async function purgeData(
+  scope: PurgeScope,
+  pin: string
+): Promise<{ ok: boolean; error?: string; message?: string }> {
+  const session = await requireOwner();
+  if (!session) return { ok: false, error: "Hanya Owner/Admin yang dapat menghapus data" };
+  const userId = (session.user as { id: string }).id;
+
+  if (!/^\d{4,8}$/.test(pin)) return { ok: false, error: "PIN tidak valid" };
+
+  const candidates = await prisma.user.findMany({
+    where: {
+      active: true,
+      pinHash: { not: null },
+      OR: [{ id: userId }, { role: "OWNER" }],
+    },
+  });
+  let pinOk = false;
+  for (const u of candidates) {
+    if (u.pinHash && (await bcrypt.compare(pin, u.pinHash))) {
+      pinOk = true;
+      break;
+    }
+  }
+  if (!pinOk) return { ok: false, error: "PIN salah" };
+
+  const counts: Record<string, number> = {};
+  const push = (k: string, n: number) => (counts[k] = n);
+
+  // Urutan penting: child dulu, parent belakangan (hindari FK error)
+  const delTransactions = async () => {
+    push("itemOrder", (await prisma.orderItem.deleteMany({})).count);
+    push("order", (await prisma.order.deleteMany({})).count);
+    push("stokKeluar", (await prisma.stockMovement.deleteMany({})).count);
+    push("gerakanBahan", (await prisma.ingredientMovement.deleteMany({})).count);
+    push("logAudit", (await prisma.auditLog.deleteMany({})).count);
+  };
+  const delShifts = async () => {
+    push("kasInOut", (await prisma.cashMovement.deleteMany({})).count);
+    push("shift", (await prisma.shift.deleteMany({})).count);
+  };
+  const delIngredients = async () => {
+    push("resep", (await prisma.recipeItem.deleteMany({})).count);
+    push("bahan", (await prisma.ingredient.deleteMany({})).count);
+  };
+  const delProducts = async () => {
+    push("resep", (counts.resep ?? 0) + (await prisma.recipeItem.deleteMany({})).count);
+    push("menu", (await prisma.product.deleteMany({})).count);
+  };
+
+  try {
+    switch (scope) {
+      case "transactions":
+        await delTransactions();
+        break;
+      case "shifts":
+        await delTransactions();
+        await delShifts();
+        break;
+      case "ingredients":
+        await delIngredients();
+        break;
+      case "products":
+        await delProducts();
+        break;
+      case "all":
+        await delTransactions();
+        await delShifts();
+        await delIngredients();
+        await delProducts();
+        break;
+    }
+  } catch {
+    return { ok: false, error: "Gagal menghapus data (coba lagi)" };
+  }
+
+  const summary = Object.entries(counts)
+    .filter(([, n]) => n > 0)
+    .map(([k, n]) => `${k} ${n}`)
+    .join(", ");
+
+  // Catat aksi berbahaya ini di audit log (dibuat setelah purge sehingga selalu tersisa)
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action: "PURGE_DATA",
+      entity: "Settings",
+      meta: JSON.stringify({ scope, counts }),
+    },
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/pos");
+  revalidatePath("/shift");
+  revalidatePath("/orders");
+
+  return {
+    ok: true,
+    message: summary
+      ? `Data dihapus: ${summary}`
+      : "Tidak ada data yang perlu dihapus",
+  };
+}

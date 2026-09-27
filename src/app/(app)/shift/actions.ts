@@ -136,7 +136,8 @@ export async function recordCashMovement(
 
 export async function closeShift(
   closingCashActual: number,
-  note?: string
+  note?: string,
+  differenceNote?: string
 ): Promise<{ ok: boolean; error?: string; difference?: number }> {
   const session = await getServerSession(authOptions);
   if (!session?.user) return { ok: false, error: "Sesi berakhir" };
@@ -172,6 +173,11 @@ export async function closeShift(
   const expected = shift.openingCash + cashSales + cashIn - cashOut - cashRefunds;
   const difference = Math.round(closingCashActual) - expected;
 
+  // Kasir wajib menjelaskan penyebab bila kas fisik tidak pas
+  if (difference !== 0 && !differenceNote?.trim()) {
+    return { ok: false, error: "Alasan selisih wajib diisi bila kas tidak pas" };
+  }
+
   await prisma.shift.update({
     where: { id: shift.id },
     data: {
@@ -180,6 +186,7 @@ export async function closeShift(
       closingCashExpected: expected,
       closingCashActual: Math.round(closingCashActual),
       difference,
+      differenceNote: difference !== 0 ? differenceNote!.trim() : null,
     },
   });
 
@@ -189,7 +196,13 @@ export async function closeShift(
       action: "CLOSE_SHIFT",
       entity: "Shift",
       entityId: shift.id,
-      meta: JSON.stringify({ expected, actual: Math.round(closingCashActual), difference, note }),
+      meta: JSON.stringify({
+        expected,
+        actual: Math.round(closingCashActual),
+        difference,
+        differenceNote: difference !== 0 ? differenceNote!.trim() : null,
+        note,
+      }),
     },
   });
 

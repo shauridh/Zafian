@@ -18,8 +18,10 @@ import {
   saveUser,
   toggleUserActive,
   getTestReceipt,
+  purgeData,
   type SettingsInput,
   type UserInput,
+  type PurgeScope,
 } from "./actions";
 import { formatRupiah, cn } from "@/lib/utils";
 
@@ -32,7 +34,7 @@ interface UserRow {
   hasPin: boolean;
 }
 
-type Tab = "toko" | "branding" | "struk" | "transaksi" | "user";
+type Tab = "toko" | "branding" | "struk" | "transaksi" | "user" | "data";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "toko", label: "Toko", icon: "🏪" },
@@ -40,6 +42,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "struk", label: "Struk & Printer", icon: "🖨️" },
   { id: "transaksi", label: "Transaksi", icon: "💰" },
   { id: "user", label: "Pengguna", icon: "👥" },
+  { id: "data", label: "Data", icon: "🗄️" },
 ];
 
 /** Preset warna aksen yang sudah lolos WCAG AA (kontras ≥4.5:1 dengan ink #141414) */
@@ -249,6 +252,65 @@ export function SettingsClient({
       toast(json.error ?? "Gagal upload", "error");
     }
   };
+
+  // ===== Hapus data (zona berbahaya) =====
+  const [purgeConfirm, setPurgeConfirm] = useState<{
+    scope: PurgeScope;
+    title: string;
+    description: string;
+  } | null>(null);
+  const [purgePin, setPurgePin] = useState("");
+  const [purgeBusy, setPurgeBusy] = useState(false);
+
+  const handlePurge = async () => {
+    if (!purgeConfirm) return;
+    setPurgeBusy(true);
+    const res = await purgeData(purgeConfirm.scope, purgePin);
+    setPurgeBusy(false);
+    if (res.ok) {
+      toast(res.message ?? "Data dihapus", "success");
+      setPurgeConfirm(null);
+      setPurgePin("");
+      router.refresh();
+    } else {
+      toast(res.error ?? "Gagal", "error");
+      setPurgePin("");
+    }
+  };
+
+  const purgeRows: { scope: PurgeScope; icon: string; title: string; description: string }[] = [
+    {
+      scope: "transactions",
+      icon: "🧾",
+      title: "Transaksi (Order)",
+      description: "Semua order + item, riwayat stok, log audit. Riwayat shift & kas tetap ada.",
+    },
+    {
+      scope: "shifts",
+      icon: "⏱️",
+      title: "Shift & Kas",
+      description: "Semua shift, rekap kas, kas masuk/keluar, TERMASUK semua transaksi/order.",
+    },
+    {
+      scope: "ingredients",
+      icon: "🥫",
+      title: "Bahan (Termasuk Resep)",
+      description: "Semua bahan beserta stok & resep yang memakainya. Menu tidak ikut terhapus.",
+    },
+    {
+      scope: "products",
+      icon: "🍔",
+      title: "Menu (Termasuk Resep)",
+      description: "Semua produk beserta resepnya. Bahan tidak ikut terhapus.",
+    },
+    {
+      scope: "all",
+      icon: "💣",
+      title: "SEMUA (Mulai dari Nol)",
+      description:
+        "Transaksi, shift & kas, menu + resep, dan bahan. Akun pengguna & pengaturan toko tetap aman.",
+    },
+  ];
 
   const storeFields = (
     <div className="space-y-2.5">
@@ -714,6 +776,42 @@ export function SettingsClient({
           </Card>
         )}
 
+        {/* ===== TAB DATA (hapus data) ===== */}
+        {tab === "data" && (
+          <Card className="p-4">
+            <h2 className="mb-1 font-display text-sm font-bold uppercase tracking-wide">🗄️ Hapus Data</h2>
+            <p className="mb-3 rounded-lg border-2 border-dashed border-danger/50 bg-danger/5 px-3 py-2 text-[11px] font-semibold text-danger">
+              ⚠️ Data yang dihapus TIDAK bisa dikembalikan. Setiap aksi dicatat di log audit dan
+              wajib konfirmasi + PIN owner/admin.
+            </p>
+            <div className="space-y-2">
+              {purgeRows.map((r) => (
+                <button
+                  key={r.scope}
+                  onClick={() => {
+                    setPurgePin("");
+                    setPurgeConfirm({ scope: r.scope, title: r.title, description: r.description });
+                  }}
+                  className="flex w-full items-start gap-3 rounded-xl border-[2.5px] border-ink bg-white px-3 py-2.5 text-left shadow-neo-sm active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+                >
+                  <span className="text-xl">{r.icon}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-bold">Hapus {r.title}</span>
+                    <span className="block text-[11px] font-semibold text-ink/50">{r.description}</span>
+                  </span>
+                  <span className="mt-0.5 shrink-0 rounded-lg border-2 border-ink bg-danger px-2 py-1 text-[10px] font-bold uppercase text-white">
+                    Hapus
+                  </span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-3 text-[11px] font-semibold text-ink/50">
+              Akun pengguna & pengaturan toko tidak terpengaruh. Untuk backup sebelum hapus,
+              gunakan Excel export di halaman laporan.
+            </p>
+          </Card>
+        )}
+
         {/* ===== TAB PENGGUNA ===== */}
         {tab === "user" && (
           <Card className="p-4">
@@ -835,6 +933,53 @@ export function SettingsClient({
             {busy ? "Menyimpan…" : "Simpan User"}
           </Button>
         </div>
+      </Sheet>
+
+      {/* Konfirmasi hapus data: alert → PIN → eksekusi */}
+      <Sheet
+        open={!!purgeConfirm}
+        onClose={() => setPurgeConfirm(null)}
+        title="Hapus Data"
+        maxWidth="max-w-sm"
+      >
+        {purgeConfirm && (
+          <div className="space-y-3">
+            <div className="rounded-xl border-[2.5px] border-danger bg-danger/10 p-3">
+              <p className="font-display text-sm font-bold uppercase text-danger">
+                ⚠️ Hapus {purgeConfirm.title}?
+              </p>
+              <p className="mt-1 text-xs font-semibold text-ink/70">{purgeConfirm.description}</p>
+              <p className="mt-1 text-xs font-bold text-danger">
+                Tindakan ini permanen dan tidak bisa dibatalkan.
+              </p>
+            </div>
+            <Input
+              label="PIN Owner/Admin (4–8 angka)"
+              type="password"
+              inputMode="numeric"
+              value={purgePin}
+              onChange={(e) => setPurgePin(e.target.value.replace(/\D/g, ""))}
+              maxLength={8}
+              autoFocus
+            />
+            <Button
+              variant="danger"
+              className="w-full"
+              disabled={purgeBusy || purgePin.length < 4}
+              onClick={handlePurge}
+            >
+              {purgeBusy ? "Menghapus…" : "🗑️ Ya, Hapus Permanen"}
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full"
+              disabled={purgeBusy}
+              onClick={() => setPurgeConfirm(null)}
+            >
+              Batal
+            </Button>
+          </div>
+        )}
       </Sheet>
 
       {/* Tes cetak struk */}

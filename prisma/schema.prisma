@@ -109,6 +109,7 @@ model Shift {
   closingCashExpected Int?
   closingCashActual   Int?
   difference          Int?
+  differenceNote      String?
   openedAt            DateTime       @default(now())
   closedAt            DateTime?
   user                User           @relation(fields: [userId], references: [id])

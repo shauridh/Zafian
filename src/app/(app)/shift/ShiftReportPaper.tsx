@@ -62,19 +62,23 @@ export function ShiftReportPaper({ data }: { data: ShiftReportData }) {
           <Row label="− Kas keluar" value={formatRupiah(data.cashOut)} />
           <Row label="− Refund tunai" value={formatRupiah(data.refundsCash)} />
           <Row label="Kas seharusnya" value={formatRupiah(data.expectedCash)} bold />
-          <Row label="Kas fisik" value={formatRupiah(data.actualCash)} bold />
-          <Row
+          <Row label="Kas fisik" value={formatRupiah(data.actualCash)} bold />          <Row
             label={
               kind === "even"
                 ? "Kas pas"
-                : kind === "over"
-                  ? "Selisih lebih"
+                : kind === "over" ?
+                  "Selisih lebih"
                   : "Selisih kurang"
             }
             value={`${kind === "over" ? "+" : kind === "under" ? "−" : ""}${formatRupiah(Math.abs(data.difference))}`}
             bold
             danger={kind !== "even"}
           />
+          {data.differenceNote && (
+            <p className="leading-tight">
+              <span className="opacity-60">Alasan:</span> {data.differenceNote}
+            </p>
+          )}
         </div>
 
         {data.cashLogs.length > 0 && (

@@ -71,6 +71,9 @@ export function ShiftClient({
   const [confirmClose, setConfirmClose] = useState<
     { amount: number; expected: number } | null
   >(null);
+  // Alasan selisih (wajib bila kas tidak pas): { amount, expected } saat sheet terbuka
+  const [diffNote, setDiffNote] = useState<{ amount: number; expected: number } | null>(null);
+  const [diffNoteText, setDiffNoteText] = useState("");
 
   const load = useCallback(async () => {
     const data = await getActiveShiftData();
@@ -116,11 +119,11 @@ export function ShiftClient({
   };
 
   /** Finalisasi: tutup shift dengan nilai kas fisik yang sudah dikonfirmasi. */
-  const finalizeCloseShift = async (amount: number) => {
+  const finalizeCloseShift = async (amount: number, reason?: string) => {
     setBusy(true);
     // ambil id shift aktif sebelum ditutup untuk laporan
     const current = shift;
-    const res = await closeShift(amount);
+    const res = await closeShift(amount, undefined, reason);
     setBusy(false);
     if (res.ok) {
       toast(
@@ -326,8 +329,15 @@ export function ShiftClient({
               disabled={busy}
               onClick={() => {
                 const amount = confirmClose.amount;
+                const expected = confirmClose.expected;
                 setConfirmClose(null);
-                finalizeCloseShift(amount);
+                if (amount - expected !== 0) {
+                  // Kas tidak pas → wajib isi alasan selisih dulu
+                  setDiffNoteText("");
+                  setDiffNote({ amount, expected });
+                } else {
+                  finalizeCloseShift(amount);
+                }
               }}
             >
               ✅ Ya, benar — Tutup Shift
@@ -377,6 +387,57 @@ export function ShiftClient({
               <ShiftReportPaper data={report} />
             </div>
           </>
+        )}
+      </Sheet>
+
+      {/* Alasan selisih — wajib bila kas fisik tidak pas saat tutup shift */}
+      <Sheet
+        open={!!diffNote}
+        onClose={() => setDiffNote(null)}
+        title="Alasan Selisih"
+        maxWidth="max-w-sm"
+      >
+        {diffNote && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between rounded-xl border-[2.5px] border-ink bg-sun px-4 py-3">
+              <span className="text-xs font-bold uppercase">Selisih</span>
+              <span className="num text-sm font-bold">
+                {differenceLabel(diffNote.amount - diffNote.expected)}
+              </span>
+            </div>
+            <p className="text-xs font-semibold text-ink/60">
+              Kas tidak pas — jelaskan penyebabnya (mis. kembalian kurang, uang pecahan
+              rusak, salah hitung). Alasan tersimpan di log audit dan tercetak di rekap shift.
+            </p>
+            <Input
+              label="Alasan selisih (wajib)"
+              value={diffNoteText}
+              onChange={(e) => setDiffNoteText(e.target.value)}
+              placeholder="mis. kembalian kurang Rp 5.000"
+              autoFocus
+            />
+            <Button
+              variant="lime"
+              className="w-full"
+              disabled={busy || !diffNoteText.trim()}
+              onClick={() => {
+                const amount = diffNote.amount;
+                const reason = diffNoteText.trim();
+                setDiffNote(null);
+                finalizeCloseShift(amount, reason);
+              }}
+            >
+              Tutup Shift
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full"
+              disabled={busy}
+              onClick={() => setDiffNote(null)}
+            >
+              Batal
+            </Button>
+          </div>
         )}
       </Sheet>
 

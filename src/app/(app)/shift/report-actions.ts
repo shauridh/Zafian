@@ -19,6 +19,7 @@ export interface ShiftReportData {
   expectedCash: number;
   actualCash: number;
   difference: number;
+  differenceNote: string | null;
   totalSales: number;
   orderCount: number;
   storeName: string;
@@ -80,6 +81,7 @@ export async function getShiftReport(shiftId: string): Promise<ShiftReportData |
     expectedCash: shift.closingCashExpected ?? 0,
     actualCash: shift.closingCashActual ?? 0,
     difference: shift.difference ?? 0,
+    differenceNote: shift.differenceNote ?? null,
     totalSales: completed.reduce((s, o) => s + (o.total - o.refundAmount), 0),
     orderCount: completed.length,
     storeName: settings?.storeName ?? "Toko",
