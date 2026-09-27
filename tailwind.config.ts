@@ -13,7 +13,7 @@ const config: Config = {
         teal: "#0CA678", // + ink: 5.1:1 ✓ (naik dari #4ECDC4 yang 1.9:1)
         lime: "#C7F464", // + ink: 12.3:1 ✓
         tangerine: "#FF9F45",
-        gofood: "#00AA13", // + white: 4.6:1 ✓
+        gofood: "#008710", // + white: 4.69:1 ✓, di atas putih: 4.69:1 ✓ (naik dari #00AA13 yang hanya 3.11:1 di atas putih)
         grabfood: "#1A1A1A",
         shopeefood: "#D63314", // + white: 5.0:1 ✓ (naik dari #EE4D2D yang 3.6:1)
         danger: "#DC2643", // + white: 5.2:1 ✓ (naik dari #F43F5E yang 3.9:1)
