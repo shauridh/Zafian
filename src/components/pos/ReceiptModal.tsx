@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { formatRupiah, orderTypeLabel, formatDateTime } from "@/lib/utils";
 import { qzAvailable, qzPrintReceipt } from "@/lib/qz";
+import { btPrintReceipt } from "@/lib/bt-printer";
 import { useUI } from "@/store/ui";
 import { Sheet } from "@/components/ui/Sheet";
 import { ReceiptPaper, type ReceiptOrderData, type ReceiptStoreData } from "./ReceiptPaper";
@@ -22,6 +23,7 @@ export function ReceiptModal({
   footer,
   useQzTray,
   qzPrinter,
+  useBtPrinter,
 }: {
   open: boolean;
   onClose: () => void;
@@ -32,38 +34,40 @@ export function ReceiptModal({
   footer?: React.ReactNode;
   useQzTray?: boolean;
   qzPrinter?: string;
+  useBtPrinter?: boolean;
 }) {
   const { toast } = useUI();
   const [qzBusy, setQzBusy] = useState(false);
 
   const size: 58 | 80 = store.receiptSize === 80 ? 80 : 58;
 
+  const receiptOpts = (o: ReceiptOrderData) => ({
+    storeName: store.name,
+    storeAddress: store.address || undefined,
+    storePhone: store.phone || undefined,
+    logoUrl: store.logoUrl || undefined,
+    orderNo: o.orderNo,
+    createdAt: formatDateTime(o.createdAt),
+    cashierName: o.cashierName,
+    orderTypeLabel: orderTypeLabel(o.orderType),
+    items: o.items,
+    subtotal: o.subtotal,
+    discount: o.discount,
+    tax: o.tax,
+    total: o.total,
+    paymentLabel:
+      o.paymentMethod === "CASH" ? "Tunai" : o.paymentMethod === "QRIS" ? "QRIS" : "Ojol",
+    cashReceived: o.cashReceived,
+    change: o.change,
+    footer: store.footer || undefined,
+    widthMm: size,
+  });
+
   const printViaQz = async () => {
     if (!order) return;
     setQzBusy(true);
     try {
-      await qzPrintReceipt({
-        printer: qzPrinter || undefined,
-        storeName: store.name,
-        storeAddress: store.address || undefined,
-        storePhone: store.phone || undefined,
-        logoUrl: store.logoUrl || undefined,
-        orderNo: order.orderNo,
-        createdAt: formatDateTime(order.createdAt),
-        cashierName: order.cashierName,
-        orderTypeLabel: orderTypeLabel(order.orderType),
-        items: order.items,
-        subtotal: order.subtotal,
-        discount: order.discount,
-        tax: order.tax,
-        total: order.total,
-        paymentLabel:
-          order.paymentMethod === "CASH" ? "Tunai" : order.paymentMethod === "QRIS" ? "QRIS" : "Ojol",
-        cashReceived: order.cashReceived,
-        change: order.change,
-        footer: store.footer || undefined,
-        widthMm: size,
-      });
+      await qzPrintReceipt({ ...receiptOpts(order), printer: qzPrinter || undefined });
       toast("Struk terkirim ke printer", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Gagal cetak via QZ Tray", "error");
@@ -72,9 +76,33 @@ export function ReceiptModal({
     }
   };
 
-  // Auto-print sekali saat dibuka dari alur checkout (jika diaktifkan di pengaturan)
+  const printViaBt = async () => {
+    if (!order) return;
+    setQzBusy(true);
+    try {
+      await btPrintReceipt(receiptOpts(order));
+      toast("Struk terkirim ke printer Bluetooth", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Gagal cetak via Bluetooth", "error");
+    } finally {
+      setQzBusy(false);
+    }
+  };
+
+  const doPrint = () => {
+    if (useBtPrinter) printViaBt();
+    else if (useQzTray) printViaQz();
+    else window.print();
+  };
+
+  // Auto-print sekali saat dibuka dari alur checkout (jika diaktifkan di pengaturan).
+  // Bluetooth tidak bisa auto: Web Bluetooth wajib dipicu klik user (kebijakan browser).
   useEffect(() => {
     if (!open || !autoPrint || !order) return;
+    if (useBtPrinter) {
+      toast("Cetak struk via tombol 🖨️ (Bluetooth butuh konfirmasi browser)", "info");
+      return;
+    }
     const t = setTimeout(() => {
       if (useQzTray) {
         printViaQz();
@@ -109,9 +137,9 @@ export function ReceiptModal({
       {/* Tombol icon-only: cetak & WhatsApp */}
       <div className="mb-2 flex items-center justify-center gap-2">
         <button
-          onClick={() => (useQzTray ? printViaQz() : window.print())}
+          onClick={doPrint}
           disabled={qzBusy}
-          title={useQzTray ? "Cetak via QZ Tray (langsung ke printer)" : "Cetak struk"}
+          title={useBtPrinter ? "Cetak via Bluetooth (langsung ke printer)" : useQzTray ? "Cetak via QZ Tray (langsung ke printer)" : "Cetak struk"}
           className="flex h-10 w-10 items-center justify-center rounded-lg border-[2.5px] border-ink bg-ink text-lg text-white shadow-neo-sm transition-all active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:opacity-50"
         >
           {qzBusy ? "⏳" : "🖨️"}

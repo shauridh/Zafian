@@ -170,10 +170,6 @@ export default function LoginPage() {
             </Button>
           </form>
         )}
-
-        <p className="mt-4 text-center text-[11px] font-semibold text-ink/40">
-          Demo: owner@kasir.id / admin123 · PIN 1234
-        </p>
       </div>
     </div>
   );

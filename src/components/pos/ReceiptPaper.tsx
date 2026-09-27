@@ -29,6 +29,9 @@ export interface ReceiptStoreData {
   receiptSize: number;
   autoPrint?: boolean;
   logoUrl?: string;
+  useQzTray?: boolean;
+  qzPrinter?: string;
+  useBtPrinter?: boolean;
 }
 
 export function ReceiptPaper({

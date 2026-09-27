@@ -32,6 +32,7 @@ export default async function OrdersPage() {
         receiptSize: settings?.receiptSize ?? 58,
         autoPrint: settings?.autoPrint ?? true,
         logoUrl: settings?.logoUrl ?? "",
+        useBtPrinter: settings?.useBtPrinter ?? false,
       }}
       orders={orders.map((o) => ({
         id: o.id,

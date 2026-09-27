@@ -27,6 +27,7 @@ export interface SettingsInput {
   accentColor: string;
   logoUrl: string;
   useQzTray: boolean;
+  useBtPrinter: boolean;
 }
 
 export async function saveSettings(input: SettingsInput): Promise<{ ok: boolean; error?: string }> {
@@ -52,6 +53,7 @@ export async function saveSettings(input: SettingsInput): Promise<{ ok: boolean;
       accentColor: input.accentColor,
       logoUrl: input.logoUrl ?? "",
       useQzTray: input.useQzTray,
+      useBtPrinter: input.useBtPrinter,
     },
     create: {
       id: "main",
@@ -67,6 +69,7 @@ export async function saveSettings(input: SettingsInput): Promise<{ ok: boolean;
       accentColor: input.accentColor,
       logoUrl: input.logoUrl ?? "",
       useQzTray: input.useQzTray,
+      useBtPrinter: input.useBtPrinter,
     },
   });
 

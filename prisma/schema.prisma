@@ -187,6 +187,7 @@ model Settings {
   printerName        String @default("") // nama printer thermal (referensi)
   accentColor        String  @default("#FFD93D") // warna aksen utama (WCAG-checked dengan ink)
   useQzTray          Boolean @default(false) // cetak via QZ Tray (ESC/POS, tanpa dialog)
+  useBtPrinter       Boolean @default(false) // cetak via printer Bluetooth (Web Bluetooth, Android/desktop)
 }
 
 model AuditLog {

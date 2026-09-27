@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Numpad } from "@/components/ui/Numpad";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
 import { useUI } from "@/store/ui";
+import { btPrintReceipt } from "@/lib/bt-printer";
 import {
   saveSettings,
   saveUser,
@@ -100,11 +101,37 @@ export function SettingsClient({
     // simpan dulu agar pengaturan terbaru terpakai
     await handleSave();
     const res = await getTestReceipt();
-    if (res.ok && res.receipt) {
-      setTestReceipt(res.receipt);
-    } else {
+    if (!res.ok || !res.receipt) {
       toast(res.error ?? "Gagal", "error");
+      return;
     }
+    if (form.useBtPrinter) {
+      // Bluetooth: cetak langsung (butuh klik user — sudah dipicu dari tombol)
+      try {
+        await btPrintReceipt({
+          storeName: form.storeName,
+          storeAddress: form.address || undefined,
+          storePhone: form.phone || undefined,
+          orderNo: res.receipt.orderNo,
+          createdAt: new Date().toLocaleString("id-ID"),
+          cashierName: "Tes Cetak",
+          orderTypeLabel: "Tes",
+          items: res.receipt.items,
+          subtotal: res.receipt.subtotal,
+          discount: res.receipt.discount,
+          tax: res.receipt.tax,
+          total: res.receipt.total,
+          paymentLabel: "Tunai",
+          footer: form.footerReceipt || undefined,
+          widthMm: form.receiptSize === 80 ? 80 : 58,
+        });
+        toast("Tes struk terkirim ke printer Bluetooth", "success");
+      } catch (e) {
+        toast(e instanceof Error ? e.message : "Gagal cetak via Bluetooth", "error");
+      }
+      return;
+    }
+    setTestReceipt(res.receipt);
   };
 
   const handleSaveUser = async () => {
@@ -366,6 +393,27 @@ export function SettingsClient({
                 </p>
               )}
 
+              <label className="flex items-center gap-2 rounded-lg border-[2.5px] border-ink bg-white px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  checked={form.useBtPrinter}
+                  onChange={(e) => setForm((f) => ({ ...f, useBtPrinter: e.target.checked }))}
+                  className="h-4 w-4 accent-yellow-400"
+                />
+                <span className="text-sm font-bold">
+                  Cetak via Printer Bluetooth
+                  <span className="block text-[11px] font-semibold text-ink/50">
+                    Tanpa aplikasi — konek langsung dari Chrome (Android/desktop) ke printer thermal BLE
+                  </span>
+                </span>
+              </label>
+              {form.useBtPrinter && (
+                <p className="rounded-lg border-2 border-dashed border-ink/40 bg-cream px-3 py-2 text-[11px] font-semibold text-ink/60">
+                  Aktif hanya di Chrome/Edge + HTTPS. Saat tes cetak pertama, dialog browser akan
+                  meminta izin memilih printer — perangkat diingat untuk sesi berikutnya.
+                </p>
+              )}
+
               <Button variant="dark" className="w-full" disabled={busy} onClick={handleTestPrint}>
                 🧪 Tes Cetak Struk
               </Button>
@@ -541,9 +589,11 @@ export function SettingsClient({
           receiptSize: form.receiptSize,
           autoPrint: form.autoPrint,
           logoUrl: effectiveLogo,
+          useBtPrinter: form.useBtPrinter,
         }}
         useQzTray={form.useQzTray}
         qzPrinter={form.printerName}
+        useBtPrinter={form.useBtPrinter}
         title="Tes Struk"
       />
     </div>

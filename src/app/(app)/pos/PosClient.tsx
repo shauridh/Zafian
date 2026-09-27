@@ -37,6 +37,7 @@ interface PosClientProps {
     logoUrl: string;
     useQzTray: boolean;
     printerName: string;
+    useBtPrinter: boolean;
   };
 }
 
@@ -353,6 +354,7 @@ export function PosClient(p: PosClientProps) {
         autoPrint={p.store.autoPrint}
         useQzTray={p.store.useQzTray}
         qzPrinter={p.store.printerName}
+        useBtPrinter={p.store.useBtPrinter}
       />
 
       {/* Processing overlay */}

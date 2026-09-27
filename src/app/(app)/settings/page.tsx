@@ -30,6 +30,7 @@ export default async function SettingsPage() {
         accentColor: settings?.accentColor ?? "#FFD93D",
         logoUrl: settings?.logoUrl ?? "",
         useQzTray: settings?.useQzTray ?? false,
+        useBtPrinter: settings?.useBtPrinter ?? false,
       }}
       logoUrl={settings?.logoUrl ?? ""}
       users={users.map((u) => ({
