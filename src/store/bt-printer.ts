@@ -9,10 +9,12 @@ interface BtPrinterState {
   printerName: string | null;
   lastPrintAt: number | null;
   lastError: string | null;
+  queueCount: number;
   setStatus: (status: BtStatus) => void;
   setPrinterName: (name: string | null) => void;
   markPrinted: () => void;
   setError: (msg: string | null) => void;
+  setQueueCount: (n: number) => void;
 }
 
 /** Status koneksi printer Bluetooth — dipakai indikator header kasir & settings. */
@@ -21,8 +23,10 @@ export const useBtPrinter = create<BtPrinterState>((set) => ({
   printerName: null,
   lastPrintAt: null,
   lastError: null,
+  queueCount: 0,
   setStatus: (status) => set({ status }),
   setPrinterName: (printerName) => set({ printerName }),
   markPrinted: () => set({ lastPrintAt: Date.now(), lastError: null }),
   setError: (lastError) => set({ lastError }),
+  setQueueCount: (queueCount) => set({ queueCount }),
 }));

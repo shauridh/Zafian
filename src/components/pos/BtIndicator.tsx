@@ -11,7 +11,7 @@ import { useUI } from "@/store/ui";
  * Klik icon = sambung ulang senyap (tanpa dialog, tanpa test print).
  */
 export function BtIndicator() {
-  const { status, printerName, lastPrintAt, setStatus } = useBtPrinter();
+  const { status, printerName, lastPrintAt, queueCount, setStatus } = useBtPrinter();
   const { toast } = useUI();
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState(false);
@@ -45,12 +45,12 @@ export function BtIndicator() {
 
   const title =
     status === "connected"
-      ? `Printer siap${printerName ? `: ${printerName}` : ""}`
+      ? `Printer siap${printerName ? `: ${printerName}` : ""}${queueCount > 0 ? ` — ${queueCount} struk mengantri` : ""}`
       : status === "connecting"
         ? "Menyambung printer…"
         : status === "unsupported"
           ? "Browser tidak mendukung Web Bluetooth"
-          : "Printer terputus — klik untuk sambung ulang";
+          : `Printer terputus${queueCount > 0 ? ` — ${queueCount} struk mengantri, akan tercetak otomatis` : ""} — klik untuk sambung ulang`;
 
   const dotColor =
     status === "connected" ? "bg-teal" : status === "connecting" ? "bg-sun" : status === "disconnected" ? "bg-candy" : "bg-ink/40";
@@ -68,8 +68,11 @@ export function BtIndicator() {
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-teal opacity-60" />
         )}
       </span>
-      {flash && (
-        <span className="absolute -top-1 -left-1 text-xs">✅</span>
+      {flash && <span className="absolute -top-1 -left-1 text-xs">✅</span>}
+      {queueCount > 0 && (
+        <span className="absolute -bottom-1 -left-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-ink bg-sun px-1 text-[9px] font-bold">
+          {queueCount}
+        </span>
       )}
     </button>
   );

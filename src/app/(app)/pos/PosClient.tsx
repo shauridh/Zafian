@@ -9,7 +9,8 @@ import { createOrder } from "./actions";
 import { CartPanel } from "./CartPanel";
 import { PaymentSheet } from "./PaymentSheet";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
-import { btEnsureConnected, btSavedName } from "@/lib/bt-printer";
+import { btEnsureConnected, btSavedName, btQueueCount } from "@/lib/bt-printer";
+import { useBtPrinter } from "@/store/bt-printer";
 import type { ReceiptData } from "./actions";
 import { ProductImage } from "@/components/pos/ProductImage";
 import { Sheet } from "@/components/ui/Sheet";
@@ -80,6 +81,7 @@ export function PosClient(p: PosClientProps) {
   // Sambungkan printer Bluetooth senyap saat kasir dibuka (tanpa dialog) agar
   // auto-print checkout benar-benar tanpa tap. Butuh izin pertama via dialog.
   useEffect(() => {
+    useBtPrinter.getState().setQueueCount(btQueueCount());
     if (!p.store.useBtPrinter || !btSavedName()) return;
     btEnsureConnected().then((ok) => {
       if (ok) console.log("[pos] printer Bluetooth siap");

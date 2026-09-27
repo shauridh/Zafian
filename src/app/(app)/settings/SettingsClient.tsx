@@ -486,7 +486,15 @@ export function SettingsClient({
                   <p>
                     Aktif di Chrome/Edge (Android/desktop) + HTTPS. Dialog pilih printer hanya
                     muncul <b>sekali</b> — setelah itu app menyambung otomatis dan cetak struk
-                    tanpa dialog & tanpa tap.
+                    tanpa dialog & tanpa tap. Struk tidak pernah hilang: bila printer putus,
+                    otomatis masuk antrian dan tercetak saat tersambung kembali.
+                  </p>
+                  <p className="rounded-md border border-ink/20 bg-white px-2 py-1.5">
+                    💡 Koneksi sering putus saat layar HP mati? Coba alternatif: pasang app
+                    gratis <b>RawBT</b> (Play Store) — printer disambungkan ke RawBT, lalu di
+                    Android Settings → Aplikasi default → Cetak, pilih RawBT. Koneksi dikelola
+                    sistem Android (jauh lebih stabil, tahan layar mati), app ini cukup cetak
+                    lewat dialog print biasa (mode Bluetooth dimatikan).
                   </p>
                   <div className="flex items-center gap-2">
                     <Button

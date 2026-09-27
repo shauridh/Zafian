@@ -105,6 +105,7 @@ async function connectGattResilient(device: any): Promise<any> {
       const conn = await connectGatt(device);
       btStore.setStatus("connected");
       btStore.setPrinterName(device.name || "Printer Bluetooth");
+      afterConnected();
       return conn;
     } catch (e) {
       console.warn(`[bt] percobaan konek ${attempt}/${MAX} gagal:`, e);
@@ -163,11 +164,17 @@ let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
 function startKeepAlive() {
   if (keepAliveTimer) return;
   keepAliveTimer = setInterval(async () => {
-    if (!cached?.server?.connected) return;
+    if (!cached?.server?.connected) {
+      // Koneksi hilang di antara tick → tandai putus supaya indikator pink + retry jalan
+      useBtPrinter.getState().setStatus("disconnected");
+      return;
+    }
     try {
       await writeData(cached.char, IDLE_PING);
     } catch {
-      console.warn("[bt] keep-alive gagal — printer mungkin terputus");
+      console.warn("[bt] keep-alive gagal — printer terputus");
+      cached = null;
+      useBtPrinter.getState().setStatus("disconnected");
     }
   }, 25_000); // tiap 25 detik
 }
@@ -196,7 +203,7 @@ export async function btEnsureConnected(): Promise<boolean> {
   if (cached?.server?.connected) {
     btStore.setStatus("connected");
     btStore.setPrinterName(btSavedName());
-    startKeepAlive();
+    afterConnected();
     return true;
   }
   try {
@@ -209,7 +216,7 @@ export async function btEnsureConnected(): Promise<boolean> {
       return false;
     }
     cached = await connectGattResilient(found);
-    startKeepAlive();
+    afterConnected();
     return true;
   } catch (e) {
     console.warn("[bt] auto-connect gagal (printer mati/di luar jangkauan):", e);
@@ -219,15 +226,75 @@ export async function btEnsureConnected(): Promise<boolean> {
   }
 }
 
-/** Kirim byte ESC/POS dalam chunk ≤20 byte (MTU BLE default aman) dengan jeda kecil. */
+/** Kirim byte ESC/POS dalam chunk ≤20 byte (MTU BLE default aman) dengan jeda kecil.
+ *  Timeout total 8 detik: tulisan BLE bisa menggantung selamanya saat printer
+ *  baru saja putus — checkout tidak boleh ikut menggantung. */
 async function writeData(char: any, data: Uint8Array): Promise<void> {
   const CHUNK = 20;
+  const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
+    Promise.race([
+      p,
+      new Promise<T>((_, rej) => setTimeout(() => rej(new Error("__BT_TIMEOUT__")), ms)),
+    ]);
+
   for (let i = 0; i < data.length; i += CHUNK) {
     const chunk = data.slice(i, i + CHUNK);
-    if (char.writeValueWithResponse) await char.writeValueWithResponse(chunk);
-    else await char.writeValue(chunk);
+    if (char.writeValueWithResponse) await withTimeout(char.writeValueWithResponse(chunk), 8000);
+    else await withTimeout(char.writeValue(chunk), 8000);
     await new Promise((r) => setTimeout(r, 12));
   }
+}
+
+/* ================= ANTRIAN CETAK (anti hilang struk) =================
+ * Kalau printer putus saat checkout, struk TIDAK hilang — masuk antrian di
+ * localStorage dan otomatis tercetak begitu printer tersambung lagi.
+ */
+const QUEUE_KEY = "zafian-print-queue";
+
+function queueLoad(): { id: string; at: number; opts: BtReceiptOptions }[] {
+  try {
+    return JSON.parse(localStorage.getItem(QUEUE_KEY) ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
+function queueSave(q: { id: string; at: number; opts: BtReceiptOptions }[]) {
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(q.slice(-20)));
+}
+
+export function btQueueCount(): number {
+  return queueLoad().length;
+}
+
+function enqueueReceipt(opts: BtReceiptOptions): void {
+  const q = queueLoad();
+  q.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, at: Date.now(), opts });
+  queueSave(q);
+  useBtPrinter.getState().setQueueCount(queueLoad().length);
+}
+
+/** Coba kirim semua antrian — dipanggil tiap kali printer tersambung. */
+async function flushQueue(): Promise<void> {
+  if (!cached?.server?.connected) return;
+  const q = queueLoad();
+  if (q.length === 0) return;
+  const remaining: typeof q = [];
+  for (const item of q) {
+    try {
+      await writeData(cached.char, buildReceiptBytes(item.opts));
+    } catch {
+      remaining.push(item); // masih gagal → sisakan untuk retry berikutnya
+    }
+  }
+  queueSave(remaining);
+  useBtPrinter.getState().setQueueCount(remaining.length);
+}
+
+/** Observer: setelah connect sukses, flush antrian. */
+function afterConnected(): void {
+  startKeepAlive();
+  void flushQueue();
 }
 
 export async function btTestPrint(): Promise<void> {
@@ -391,19 +458,38 @@ export function buildReceiptBytes(opts: BtReceiptOptions): Uint8Array {
   return new Uint8Array(out);
 }
 
-/** Cetak struk ESC/POS via Bluetooth. */
+/** Cetak struk ESC/POS via Bluetooth.
+ *  Kalau printer putus/tidak terjawab: struk masuk antrian (tidak hilang) dan
+ *  error "__BT_TIMEOUT__" diterjemahkan jadi pesan ramah kasir. */
 export async function btPrintReceipt(opts: BtReceiptOptions): Promise<void> {
   const btStore = useBtPrinter.getState();
+  const friendly = (e: unknown): never => {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "__BT_TIMEOUT__")
+      throw new Error("Printer tidak merespons — struk masuk antrian & tercetak otomatis saat printer tersambung lagi");
+    throw e instanceof Error ? e : new Error(msg);
+  };
   const write = async (char: any) => {
-    await writeData(char, buildReceiptBytes(opts));
-    btStore.markPrinted();
+    try {
+      await writeData(char, buildReceiptBytes(opts));
+      btStore.markPrinted();
+    } catch (e) {
+      enqueueReceipt(opts);
+      friendly(e);
+    }
   };
   // Pakai koneksi cache bila masih hidup → tanpa dialog & tanpa gesture.
   if (cached?.server?.connected) {
     await write(cached.char);
     return;
   }
-  const conn = await connectDevice();
-  cached = conn;
-  await write(conn.char);
+  // Coba reconnect senyap dulu (tanpa dialog) — kalau gagal, antrikan + lempar pesan ramah
+  const ok = await btEnsureConnected().catch(() => false);
+  if (ok && cached) {
+    await write(cached.char);
+    return;
+  }
+  enqueueReceipt(opts);
+  btStore.setStatus("disconnected");
+  throw new Error("Printer terputus — struk masuk antrian & tercetak otomatis saat printer tersambung lagi");
 }
