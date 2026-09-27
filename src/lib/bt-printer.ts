@@ -15,6 +15,8 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { useBtPrinter } from "@/store/bt-printer";
+
 const STORAGE_KEY = "zafian-bt-printer";
 
 export function btSupported(): boolean {
@@ -89,7 +91,8 @@ let cached: { server: any; char: any } | null = null;
  */
 async function connectGattResilient(device: any): Promise<any> {
   const MAX = 3;
-  let lastErr: unknown;
+  const btStore = useBtPrinter.getState();
+  btStore.setStatus("connecting");
   for (let attempt = 1; attempt <= MAX; attempt++) {
     try {
       // Reset koneksi setengah-terbuka dari percobaan/sesi sebelumnya
@@ -99,13 +102,16 @@ async function connectGattResilient(device: any): Promise<any> {
       } catch {
         /* perangkat mungkin belum pernah konek — abaikan */
       }
-      return await connectGatt(device);
+      const conn = await connectGatt(device);
+      btStore.setStatus("connected");
+      btStore.setPrinterName(device.name || "Printer Bluetooth");
+      return conn;
     } catch (e) {
-      lastErr = e;
       console.warn(`[bt] percobaan konek ${attempt}/${MAX} gagal:`, e);
       if (attempt < MAX) await new Promise((r) => setTimeout(r, 600 * attempt));
     }
   }
+  btStore.setStatus("disconnected");
   throw new Error(
     "Gagal konek ke printer setelah 3 percobaan. Cek: (1) printer menyala & kertas terpasang, " +
       "(2) tidak sedang dipakai app lain (putuskan dulu), " +
@@ -152,18 +158,34 @@ async function connectGatt(device: any): Promise<any> {
  * Dipanggil otomatis saat halaman kasir dibuka.
  */
 export async function btEnsureConnected(): Promise<boolean> {
-  if (!btSavedName()) return false;
-  if (cached?.server?.connected) return true;
+  const btStore = useBtPrinter.getState();
+  if (!btSupported()) {
+    btStore.setStatus("unsupported");
+    return false;
+  }
+  if (!btSavedName()) {
+    btStore.setStatus("disconnected");
+    return false;
+  }
+  if (cached?.server?.connected) {
+    btStore.setStatus("connected");
+    btStore.setPrinterName(btSavedName());
+    return true;
+  }
   try {
     const bt = (navigator as any).bluetooth;
     if (!bt?.getDevices) return false;
     const devices = await bt.getDevices();
     const found = (devices as any[]).find((d) => d.name === btSavedName());
-    if (!found) return false;
+    if (!found) {
+      btStore.setStatus("disconnected");
+      return false;
+    }
     cached = await connectGattResilient(found);
     return true;
   } catch (e) {
     console.warn("[bt] auto-connect gagal (printer mati/di luar jangkauan):", e);
+    btStore.setError(e instanceof Error ? e.message : String(e));
     cached = null;
     return false;
   }
@@ -190,13 +212,16 @@ export async function btTestPrint(): Promise<void> {
 
 /** Kirim byte mentah (mis. pola kalibrasi) ke printer Bluetooth. */
 export async function btSendRaw(bytes: Uint8Array): Promise<void> {
+  const btStore = useBtPrinter.getState();
   if (cached?.server?.connected) {
     await writeData(cached.char, bytes);
+    btStore.markPrinted();
     return;
   }
   const conn = await connectDevice();
   cached = conn;
   await writeData(conn.char, bytes);
+  btStore.markPrinted();
 }
 
 /* ========================= PERATAAN =========================
@@ -340,12 +365,17 @@ export function buildReceiptBytes(opts: BtReceiptOptions): Uint8Array {
 
 /** Cetak struk ESC/POS via Bluetooth. */
 export async function btPrintReceipt(opts: BtReceiptOptions): Promise<void> {
+  const btStore = useBtPrinter.getState();
+  const write = async (char: any) => {
+    await writeData(char, buildReceiptBytes(opts));
+    btStore.markPrinted();
+  };
   // Pakai koneksi cache bila masih hidup → tanpa dialog & tanpa gesture.
   if (cached?.server?.connected) {
-    await writeData(cached.char, buildReceiptBytes(opts));
+    await write(cached.char);
     return;
   }
   const conn = await connectDevice();
   cached = conn;
-  await writeData(conn.char, buildReceiptBytes(opts));
+  await write(conn.char);
 }
