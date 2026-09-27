@@ -18,7 +18,11 @@ import {
 } from "./actions";
 import { getShiftReport, type ShiftReportData } from "./report-actions";
 import { ShiftReportPaper } from "./ShiftReportPaper";
-import { formatRupiah, formatDateTime } from "@/lib/utils";
+import {
+  formatRupiah,
+  formatDateTime,
+  differenceLabel,
+} from "@/lib/utils";
 
 interface ShiftHistory {
   id: string;
@@ -63,6 +67,10 @@ export function ShiftClient({
   const [pendingCashAmount, setPendingCashAmount] = useState(0);
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<ShiftReportData | null>(null);
+  // Konfirmasi sebelum finalisasi tutup shift: { amount = kas fisik, expected = kas seharusnya }
+  const [confirmClose, setConfirmClose] = useState<
+    { amount: number; expected: number } | null
+  >(null);
 
   const load = useCallback(async () => {
     const data = await getActiveShiftData();
@@ -107,7 +115,8 @@ export function ShiftClient({
     }
   };
 
-  const handleCloseShift = async (amount: number) => {
+  /** Finalisasi: tutup shift dengan nilai kas fisik yang sudah dikonfirmasi. */
+  const finalizeCloseShift = async (amount: number) => {
     setBusy(true);
     // ambil id shift aktif sebelum ditutup untuk laporan
     const current = shift;
@@ -115,10 +124,8 @@ export function ShiftClient({
     setBusy(false);
     if (res.ok) {
       toast(
-        res.difference === 0
-          ? "Shift ditutup — kas pas! ✅"
-          : `Shift ditutup — selisih ${formatRupiah(res.difference ?? 0)}`,
-        res.difference === 0 ? "success" : "info"
+        `Shift ditutup — ${differenceLabel(res.difference ?? 0)}`,
+        (res.difference ?? 0) === 0 ? "success" : "info"
       );
       setShift(null);
       // muat rekap shift untuk ditawarkan cetak
@@ -212,9 +219,7 @@ export function ShiftClient({
                         (s.difference ?? 0) === 0 ? "text-gofood" : "text-danger"
                       }`}
                     >
-                      {(s.difference ?? 0) === 0
-                        ? "Kas pas"
-                        : `Selisih ${formatRupiah(s.difference ?? 0)}`}
+                      {differenceLabel(s.difference)}
                     </p>
                   </div>
                 </Card>
@@ -274,9 +279,81 @@ export function ShiftClient({
         confirmLabel="Hitung Selisih"
         onSubmit={(v) => {
           setNumpad({ kind: "closed" });
-          handleCloseShift(v);
+          // Jangan langsung tutup — tampilkan dialog konfirmasi dulu
+          setConfirmClose({ amount: v, expected: shift?.expectedCash ?? 0 });
         }}
       />
+
+      {/* Konfirmasi tutup shift: kas benar / edit kas akhir */}
+      <Sheet
+        open={!!confirmClose}
+        onClose={() => setConfirmClose(null)}
+        title="Konfirmasi Tutup Shift"
+        maxWidth="max-w-sm"
+      >
+        {confirmClose && (
+          <div className="space-y-3">
+            <p className="text-center text-xs font-semibold text-ink/60">
+              Apakah hitungan kas sudah benar?
+            </p>
+            <div className="space-y-px overflow-hidden rounded-xl border-[2.5px] border-ink bg-ink/10">
+              <div className="flex items-center justify-between bg-white px-4 py-2.5">
+                <span className="text-xs font-bold uppercase text-ink/50">Kas seharusnya</span>
+                <span className="num text-sm font-bold">
+                  {formatRupiah(confirmClose.expected)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between bg-white px-4 py-2.5">
+                <span className="text-xs font-bold uppercase text-ink/50">Kas fisik</span>
+                <span className="num text-sm font-bold">
+                  {formatRupiah(confirmClose.amount)}
+                </span>
+              </div>
+              <div
+                className={`flex items-center justify-between px-4 py-2.5 ${
+                  confirmClose.amount - confirmClose.expected === 0 ? "bg-lime" : "bg-sun"
+                }`}
+              >
+                <span className="text-xs font-bold uppercase">Selisih</span>
+                <span className="num text-sm font-bold">
+                  {differenceLabel(confirmClose.amount - confirmClose.expected)}
+                </span>
+              </div>
+            </div>
+            <Button
+              variant="lime"
+              className="w-full"
+              disabled={busy}
+              onClick={() => {
+                const amount = confirmClose.amount;
+                setConfirmClose(null);
+                finalizeCloseShift(amount);
+              }}
+            >
+              ✅ Ya, benar — Tutup Shift
+            </Button>
+            <Button
+              variant="dark"
+              className="w-full"
+              disabled={busy}
+              onClick={() => {
+                setConfirmClose(null);
+                setNumpad({ kind: "closing" }); // kembali ke numpad untuk edit kas akhir
+              }}
+            >
+              ✏️ Edit Kas Akhir
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full"
+              disabled={busy}
+              onClick={() => setConfirmClose(null)}
+            >
+              Batal
+            </Button>
+          </div>
+        )}
+      </Sheet>
 
       {/* Rekap shift — muncul setelah tutup shift, bisa dicetak */}
       <Sheet

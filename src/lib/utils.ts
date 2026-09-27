@@ -59,6 +59,25 @@ export function computeCostPerUnit(input: {
   return Math.round(input.costPerUnit || 0);
 }
 
+/**
+ * Klasifikasi selisih kas shift: actual − expected.
+ * "over" = kas fisik lebih, "under" = kas fisik kurang, "even" = pas.
+ */
+export type DifferenceKind = "over" | "under" | "even";
+
+export function differenceKind(difference: number | null | undefined): DifferenceKind {
+  if (!difference) return "even";
+  return difference > 0 ? "over" : "under";
+}
+
+/** Label selisih: "Selisih lebih +Rp 5.000" / "Selisih kurang −Rp 3.000" / "Kas pas". */
+export function differenceLabel(difference: number | null | undefined): string {
+  const kind = differenceKind(difference);
+  if (kind === "even") return "Kas pas";
+  const sign = kind === "over" ? "+" : "−";
+  return `Selisih ${kind === "over" ? "lebih" : "kurang"} ${sign}${formatRupiah(Math.abs(difference ?? 0))}`;
+}
+
 export function generateOrderNo(): string {
   const now = new Date();
   const pad = (n: number, l = 2) => String(n).padStart(l, "0");

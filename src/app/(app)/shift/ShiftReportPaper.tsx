@@ -1,6 +1,12 @@
 "use client";
 
-import { formatRupiah, formatDateTime, orderTypeShort } from "@/lib/utils";
+import {
+  formatRupiah,
+  formatDateTime,
+  orderTypeShort,
+  differenceLabel,
+  differenceKind,
+} from "@/lib/utils";
 import type { ShiftReportData } from "./report-actions";
 
 /**
@@ -8,6 +14,7 @@ import type { ShiftReportData } from "./report-actions";
  * selisih, dan blok tanda tangan kasir vs owner.
  */
 export function ShiftReportPaper({ data }: { data: ShiftReportData }) {
+  const kind = differenceKind(data.difference);
   const Row = ({ label, value, bold, danger }: { label: string; value: string; bold?: boolean; danger?: boolean }) => (
     <p className={`flex justify-between leading-snug ${bold ? "font-bold" : ""} ${danger ? "text-danger" : ""}`}>
       <span>{label}</span>
@@ -57,10 +64,16 @@ export function ShiftReportPaper({ data }: { data: ShiftReportData }) {
           <Row label="Kas seharusnya" value={formatRupiah(data.expectedCash)} bold />
           <Row label="Kas fisik" value={formatRupiah(data.actualCash)} bold />
           <Row
-            label="Selisih"
-            value={formatRupiah(data.difference)}
+            label={
+              kind === "even"
+                ? "Kas pas"
+                : kind === "over"
+                  ? "Selisih lebih"
+                  : "Selisih kurang"
+            }
+            value={`${kind === "over" ? "+" : kind === "under" ? "−" : ""}${formatRupiah(Math.abs(data.difference))}`}
             bold
-            danger={data.difference !== 0}
+            danger={kind !== "even"}
           />
         </div>
 
