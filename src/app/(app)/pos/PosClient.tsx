@@ -10,7 +10,6 @@ import { CartPanel } from "./CartPanel";
 import { PaymentSheet } from "./PaymentSheet";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
 import { btEnsureConnected, btSavedName } from "@/lib/bt-printer";
-import { BtIndicator } from "@/components/pos/BtIndicator";
 import type { ReceiptData } from "./actions";
 import { ProductImage } from "@/components/pos/ProductImage";
 import { Sheet } from "@/components/ui/Sheet";
@@ -272,9 +271,6 @@ export function PosClient(p: PosClientProps) {
           </div>
         </div>
       )}
-
-      {/* Indikator status printer Bluetooth */}
-      {p.store.useBtPrinter && <BtIndicator />}
 
       {/* Desktop/tablet: dua pane */}
       <div className="hidden min-h-0 flex-1 lg:flex">

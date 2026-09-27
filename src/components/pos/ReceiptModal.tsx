@@ -102,10 +102,13 @@ export function ReceiptModal({
   };
 
   // Auto-print sekali saat dibuka dari alur checkout (jika diaktifkan di pengaturan).
+  // Hanya untuk DINE_IN & TAKE_AWAY — pesanan ojol (GoFood/GrabFood/Shopee) tidak
+  // dicetak otomatis (struk bisa dicetak manual via tombol 🖨️ bila perlu).
   // Bluetooth: cetak senyap kalau koneksi sudah siap (perangkat pernah diizinkan).
   // Kalau belum, cukup sekali tap 🖨️ untuk memicu dialog pilih printer pertama kali.
   useEffect(() => {
     if (!open || !autoPrint || !order) return;
+    if (order.orderType !== "DINE_IN" && order.orderType !== "TAKE_AWAY") return;
     if (useBtPrinter) {
       let cancelled = false;
       (async () => {

@@ -1,8 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import type { CartItem } from "@/lib/types";
 import { formatRupiah, ORDER_TYPES, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
+import { Sheet } from "@/components/ui/Sheet";
+import { useCart, type HeldOrder } from "@/store/cart";
 
 interface CartPanelProps {
   items: CartItem[];
@@ -28,6 +31,19 @@ interface CartPanelProps {
 }
 
 export function CartPanel(p: CartPanelProps) {
+  const held = useCart((s) => s.held);
+  const holdOrder = useCart((s) => s.hold);
+  const loadHeld = useCart((s) => s.loadHeld);
+  const dropHeld = useCart((s) => s.dropHeld);
+  const [heldOpen, setHeldOpen] = useState(false);
+  const [holdLabel, setHoldLabel] = useState("");
+
+  const handleHold = () => {
+    const id = holdOrder(holdLabel);
+    setHoldLabel("");
+    if (id) setHeldOpen(true);
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Tipe pesanan */}
@@ -173,9 +189,14 @@ export function CartPanel(p: CartPanelProps) {
         )}
         <div className="flex gap-2">
           {p.items.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={p.onClear} className="px-3">
-              Kosongkan
-            </Button>
+            <>
+              <Button variant="ghost" size="sm" onClick={handleHold} className="px-3">
+                📌 Hold
+              </Button>
+              <Button variant="ghost" size="sm" onClick={p.onClear} className="px-3">
+                Kosongkan
+              </Button>
+            </>
           )}
           <Button
             variant="primary"
@@ -186,7 +207,80 @@ export function CartPanel(p: CartPanelProps) {
             Bayar
           </Button>
         </div>
+        {held.length > 0 && (
+          <button
+            onClick={() => setHeldOpen(true)}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-ink/40 py-1.5 text-[11px] font-bold uppercase text-ink/60 active:bg-cream"
+          >
+            📌 {held.length} pesanan disimpan
+          </button>
+        )}
       </div>
+
+      {/* Sheet pesanan disimpan (hold) */}
+      <Sheet open={heldOpen} onClose={() => setHeldOpen(false)} title="📌 Pesanan Simpanan" maxWidth="max-w-sm">
+        {p.items.length > 0 && (
+          <div className="mb-3 space-y-2 rounded-xl border-[2.5px] border-ink bg-cream p-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-ink/50">
+              Simpan keranjang aktif ({p.items.length} item · {formatRupiah(p.total)})
+            </p>
+            <div className="flex gap-2">
+              <input
+                value={holdLabel}
+                onChange={(e) => setHoldLabel(e.target.value)}
+                placeholder="Label (mis. Meja 5)…"
+                className="min-w-0 flex-1 rounded-lg border-2 border-ink bg-white px-3 py-2 text-sm font-semibold placeholder:font-normal placeholder:text-ink/40 focus:outline-none focus:ring-2 focus:ring-sun"
+              />
+              <Button size="sm" onClick={handleHold}>
+                Simpan
+              </Button>
+            </div>
+          </div>
+        )}
+        {held.length === 0 ? (
+          <p className="py-6 text-center text-sm font-bold text-ink/40">Belum ada pesanan disimpan</p>
+        ) : (
+          <ul className="space-y-2">
+            {held.map((h) => (
+              <HeldRow
+                key={h.id}
+                h={h}
+                onLoad={() => {
+                  loadHeld(h.id);
+                  setHeldOpen(false);
+                }}
+                onDrop={() => dropHeld(h.id)}
+              />
+            ))}
+          </ul>
+        )}
+      </Sheet>
     </div>
+  );
+}
+
+function HeldRow({ h, onLoad, onDrop }: { h: HeldOrder; onLoad: () => void; onDrop: () => void }) {
+  const total = h.items.reduce((s, i) => s + i.price * i.qty - i.discount * i.qty, 0);
+  const ago = Math.floor((Date.now() - h.heldAt) / 60000);
+  return (
+    <li className="rounded-xl border-[2.5px] border-ink bg-white p-2.5 shadow-neo-sm">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold">{h.label}</p>
+          <p className="text-[11px] font-semibold text-ink/50">
+            {h.items.reduce((s, i) => s + i.qty, 0)} item · {formatRupiah(total)} ·{" "}
+            {ago < 1 ? "baru saja" : ago < 60 ? `${ago} mnt lalu` : `${Math.floor(ago / 60)} jam lalu`}
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-1.5">
+          <Button size="sm" onClick={onLoad}>
+            Muat
+          </Button>
+          <Button size="sm" variant="candy" onClick={onDrop}>
+            ✕
+          </Button>
+        </div>
+      </div>
+    </li>
   );
 }

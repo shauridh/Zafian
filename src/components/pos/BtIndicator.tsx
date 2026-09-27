@@ -3,29 +3,24 @@
 import { useEffect, useState } from "react";
 import { useBtPrinter, type BtStatus } from "@/store/bt-printer";
 import { btEnsureConnected, btSavedName } from "@/lib/bt-printer";
-
-const META: Record<BtStatus, { dot: string; text: string; label: string; bg: string }> = {
-  connected: { dot: "bg-teal", text: "text-ink", label: "Printer siap", bg: "bg-white" },
-  connecting: { dot: "bg-sun", text: "text-ink", label: "Menyambung…", bg: "bg-white" },
-  disconnected: { dot: "bg-candy", text: "text-white", label: "Printer putus", bg: "bg-candy" },
-  unsupported: { dot: "bg-ink/40", text: "text-white", label: "BT tak didukung", bg: "bg-ink/40" },
-  disabled: { dot: "bg-ink/40", text: "text-white", label: "BT nonaktif", bg: "bg-ink/40" },
-};
+import { useUI } from "@/store/ui";
 
 /**
- * Pill status koneksi printer Bluetooth untuk header halaman kasir.
- * Klik pill = coba sambung ulang senyap (tanpa dialog).
+ * Indikator status printer Bluetooth — icon-only, menempel di sidebar bawah
+ * (sejajar tombol Keluar) supaya halaman kasir tidak bertambah tinggi.
+ * Klik icon = sambung ulang senyap (tanpa dialog, tanpa test print).
  */
 export function BtIndicator() {
   const { status, printerName, lastPrintAt, setStatus } = useBtPrinter();
+  const { toast } = useUI();
   const [busy, setBusy] = useState(false);
-  const [showFlash, setShowFlash] = useState(false);
+  const [flash, setFlash] = useState(false);
 
   // Flash singkat setiap berhasil cetak
   useEffect(() => {
     if (!lastPrintAt) return;
-    setShowFlash(true);
-    const t = setTimeout(() => setShowFlash(false), 1500);
+    setFlash(true);
+    const t = setTimeout(() => setFlash(false), 1500);
     return () => clearTimeout(t);
   }, [lastPrintAt]);
 
@@ -38,35 +33,44 @@ export function BtIndicator() {
     return () => clearInterval(iv);
   }, [status]);
 
-  const m = META[status];
-
   const handleClick = async () => {
     if (busy || status === "connected" || status === "unsupported") return;
     setBusy(true);
     setStatus("connecting");
     const ok = await btEnsureConnected();
-    if (!ok) setStatus("disconnected");
+    if (ok) toast("Printer tersambung ✓", "success");
+    else setStatus("disconnected");
     setBusy(false);
   };
+
+  const title =
+    status === "connected"
+      ? `Printer siap${printerName ? `: ${printerName}` : ""}`
+      : status === "connecting"
+        ? "Menyambung printer…"
+        : status === "unsupported"
+          ? "Browser tidak mendukung Web Bluetooth"
+          : "Printer terputus — klik untuk sambung ulang";
+
+  const dotColor =
+    status === "connected" ? "bg-teal" : status === "connecting" ? "bg-sun" : status === "disconnected" ? "bg-candy" : "bg-ink/40";
 
   return (
     <button
       onClick={handleClick}
-      title={printerName ? `${printerName} — klik untuk sambung ulang` : "Klik untuk sambung printer"}
-      className={`flex shrink-0 items-center gap-2 border-b-[2.5px] border-ink px-4 py-1.5 text-left transition-colors ${m.bg}`}
+      title={title}
+      aria-label={title}
+      className="relative flex h-9 w-9 items-center justify-center rounded-xl border-[2.5px] border-ink bg-white shadow-neo-sm active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
     >
-      <span className={`relative flex h-2.5 w-2.5`}>
+      <span className="text-base leading-none">🖨️</span>
+      <span className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-ink ${dotColor}`}>
         {status === "connected" && (
-          <span className={`absolute inline-flex h-full w-full animate-ping rounded-full ${m.dot} opacity-60`} />
-        )}
-        <span className={`relative inline-flex h-2.5 w-2.5 rounded-full border border-ink ${m.dot}`} />
-      </span>
-      <span className={`text-[11px] font-bold uppercase tracking-wide ${status === "disconnected" || status === "unsupported" ? "text-white" : "text-ink/70"}`}>
-        {showFlash ? "✅ Struk tercetak" : m.label}
-        {printerName && status === "connected" && (
-          <span className="ml-1 font-semibold normal-case text-ink/50">· {printerName}</span>
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-teal opacity-60" />
         )}
       </span>
+      {flash && (
+        <span className="absolute -top-1 -left-1 text-xs">✅</span>
+      )}
     </button>
   );
 }

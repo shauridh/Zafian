@@ -8,6 +8,7 @@ import type { Session } from "next-auth";
 import { cn } from "@/lib/utils";
 import type { SessionUser } from "@/lib/types";
 import { Sheet } from "@/components/ui/Sheet";
+import { BtIndicator } from "@/components/pos/BtIndicator";
 
 interface NavItem {
   href: string;
@@ -85,12 +86,15 @@ export function AppShell({
             <p className="truncate text-sm font-bold">{user.name}</p>
             <p className="text-[10px] font-bold uppercase tracking-wide text-ink/50">{user.role}</p>
           </div>
-          <button
-            onClick={() => signOut({ callbackUrl: "/login" })}
-            className="w-full rounded-xl border-[2.5px] border-ink bg-white px-3 py-2 text-sm font-bold uppercase shadow-neo-sm active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
-          >
-            Keluar
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              className="flex-1 rounded-xl border-[2.5px] border-ink bg-white px-3 py-2 text-sm font-bold uppercase shadow-neo-sm active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+            >
+              Keluar
+            </button>
+            <BtIndicator />
+          </div>
         </div>
       </aside>
 

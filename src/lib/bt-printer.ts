@@ -72,7 +72,7 @@ async function connectDevice(forcePick = false): Promise<any> {
     try {
       const device = await bt.getDevices();
       const found = (device as any[]).find((d) => d.name === saved);
-      if (found) return await connectGatt(found);
+      if (found) return await connectGattResilient(found);
     } catch {
       /* getDevices belum didukung → lanjut pilih manual */
     }
@@ -152,10 +152,36 @@ async function connectGatt(device: any): Promise<any> {
 }
 
 /**
+ * Keep-alive: kirim "dummy feed" 1mm (ESC @ tidak mencetak apa pun — hanya reset
+ * internal, tanpa paper movement terlihat) supaya koneksi GATT tidak di-drop
+ * printer yang sleep. Ini yang membuat reconnect TIDAK butuh test print lagi.
+ */
+const IDLE_PING = new Uint8Array([0x1b, 0x40, 0x0a]); // init + 1 linefeed kosong
+
+let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
+
+function startKeepAlive() {
+  if (keepAliveTimer) return;
+  keepAliveTimer = setInterval(async () => {
+    if (!cached?.server?.connected) return;
+    try {
+      await writeData(cached.char, IDLE_PING);
+    } catch {
+      console.warn("[bt] keep-alive gagal — printer mungkin terputus");
+    }
+  }, 25_000); // tiap 25 detik
+}
+
+export function btStopKeepAlive() {
+  if (keepAliveTimer) clearInterval(keepAliveTimer);
+  keepAliveTimer = null;
+}
+
+/**
  * Pastikan printer siap tanpa dialog: kalau perangkat sudah pernah diizinkan
  * (sudah pernah dipilih lewat dialog), Chrome mengizinkan reconnect senyap via
  * navigator.bluetooth.getDevices() — TANPA user gesture.
- * Dipanggil otomatis saat halaman kasir dibuka.
+ * Dipanggil otomatis saat halaman kasir dibuka & tiap 15 detik saat disconnected.
  */
 export async function btEnsureConnected(): Promise<boolean> {
   const btStore = useBtPrinter.getState();
@@ -170,6 +196,7 @@ export async function btEnsureConnected(): Promise<boolean> {
   if (cached?.server?.connected) {
     btStore.setStatus("connected");
     btStore.setPrinterName(btSavedName());
+    startKeepAlive();
     return true;
   }
   try {
@@ -182,6 +209,7 @@ export async function btEnsureConnected(): Promise<boolean> {
       return false;
     }
     cached = await connectGattResilient(found);
+    startKeepAlive();
     return true;
   } catch (e) {
     console.warn("[bt] auto-connect gagal (printer mati/di luar jangkauan):", e);
