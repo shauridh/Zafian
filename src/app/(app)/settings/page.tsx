@@ -31,6 +31,10 @@ export default async function SettingsPage() {
         logoUrl: settings?.logoUrl ?? "",
         useQzTray: settings?.useQzTray ?? false,
         useBtPrinter: settings?.useBtPrinter ?? false,
+        receiptAlign: settings?.receiptAlign ?? "AUTO",
+        promoText: settings?.promoText ?? "",
+        receiptQr: settings?.receiptQr ?? false,
+        qrText: settings?.qrText ?? "",
       }}
       logoUrl={settings?.logoUrl ?? ""}
       users={users.map((u) => ({

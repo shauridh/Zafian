@@ -24,6 +24,7 @@ export function ReceiptModal({
   useQzTray,
   qzPrinter,
   useBtPrinter,
+  receiptAlign,
 }: {
   open: boolean;
   onClose: () => void;
@@ -35,6 +36,7 @@ export function ReceiptModal({
   useQzTray?: boolean;
   qzPrinter?: string;
   useBtPrinter?: boolean;
+  receiptAlign?: "AUTO" | "SPACE" | "LEFT";
 }) {
   const { toast } = useUI();
   const [qzBusy, setQzBusy] = useState(false);
@@ -60,6 +62,10 @@ export function ReceiptModal({
     cashReceived: o.cashReceived,
     change: o.change,
     footer: store.footer || undefined,
+    promoText: store.promoText || undefined,
+    receiptQr: store.receiptQr,
+    qrText: store.qrText?.trim() ? store.qrText : o.orderNo,
+    alignMode: receiptAlign ?? "AUTO",
     widthMm: size,
   });
 

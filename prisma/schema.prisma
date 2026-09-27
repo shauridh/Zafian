@@ -188,6 +188,10 @@ model Settings {
   accentColor        String  @default("#FFD93D") // warna aksen utama (WCAG-checked dengan ink)
   useQzTray          Boolean @default(false) // cetak via QZ Tray (ESC/POS, tanpa dialog)
   useBtPrinter       Boolean @default(false) // cetak via printer Bluetooth (Web Bluetooth, Android/desktop)
+  receiptAlign       String  @default("AUTO") // AUTO = ESC/POS center; SPACE = pad spasi; LEFT = rata kiri
+  promoText          String  @default("") // baris promo di struk (bisa multi-baris)
+  receiptQr          Boolean @default(false) // tampilkan QR di struk
+  qrText             String  @default("") // isi QR (mis. link IG/menu); kosong = nomor order
 }
 
 model AuditLog {

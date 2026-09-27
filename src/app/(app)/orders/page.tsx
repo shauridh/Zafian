@@ -33,6 +33,9 @@ export default async function OrdersPage() {
         autoPrint: settings?.autoPrint ?? true,
         logoUrl: settings?.logoUrl ?? "",
         useBtPrinter: settings?.useBtPrinter ?? false,
+        promoText: settings?.promoText ?? "",
+        receiptQr: settings?.receiptQr ?? false,
+        qrText: settings?.qrText ?? "",
       }}
       orders={orders.map((o) => ({
         id: o.id,

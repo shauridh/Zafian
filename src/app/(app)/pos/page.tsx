@@ -44,6 +44,10 @@ export default async function PosPage() {
         useQzTray: settings?.useQzTray ?? false,
         printerName: settings?.printerName ?? "",
         useBtPrinter: settings?.useBtPrinter ?? false,
+        promoText: settings?.promoText ?? "",
+        receiptQr: settings?.receiptQr ?? false,
+        qrText: settings?.qrText ?? "",
+        receiptAlign: settings?.receiptAlign ?? "AUTO",
       }}
       hasActiveShift={!!activeShift}
       shiftOwner={activeShift?.userId}

@@ -38,6 +38,10 @@ interface PosClientProps {
     useQzTray: boolean;
     printerName: string;
     useBtPrinter: boolean;
+    promoText: string;
+    receiptQr: boolean;
+    qrText: string;
+    receiptAlign: string;
   };
 }
 
@@ -355,6 +359,7 @@ export function PosClient(p: PosClientProps) {
         useQzTray={p.store.useQzTray}
         qzPrinter={p.store.printerName}
         useBtPrinter={p.store.useBtPrinter}
+        receiptAlign={(p.store.receiptAlign as "AUTO" | "SPACE" | "LEFT") ?? "AUTO"}
       />
 
       {/* Processing overlay */}

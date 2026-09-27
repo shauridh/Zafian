@@ -28,6 +28,10 @@ export interface SettingsInput {
   logoUrl: string;
   useQzTray: boolean;
   useBtPrinter: boolean;
+  receiptAlign: string;
+  promoText: string;
+  receiptQr: boolean;
+  qrText: string;
 }
 
 export async function saveSettings(input: SettingsInput): Promise<{ ok: boolean; error?: string }> {
@@ -54,6 +58,10 @@ export async function saveSettings(input: SettingsInput): Promise<{ ok: boolean;
       logoUrl: input.logoUrl ?? "",
       useQzTray: input.useQzTray,
       useBtPrinter: input.useBtPrinter,
+      receiptAlign: input.receiptAlign === "SPACE" || input.receiptAlign === "LEFT" ? input.receiptAlign : "AUTO",
+      promoText: input.promoText.slice(0, 300),
+      receiptQr: input.receiptQr,
+      qrText: input.qrText.slice(0, 300),
     },
     create: {
       id: "main",
@@ -70,6 +78,10 @@ export async function saveSettings(input: SettingsInput): Promise<{ ok: boolean;
       logoUrl: input.logoUrl ?? "",
       useQzTray: input.useQzTray,
       useBtPrinter: input.useBtPrinter,
+      receiptAlign: input.receiptAlign === "SPACE" || input.receiptAlign === "LEFT" ? input.receiptAlign : "AUTO",
+      promoText: input.promoText.slice(0, 300),
+      receiptQr: input.receiptQr,
+      qrText: input.qrText.slice(0, 300),
     },
   });
 

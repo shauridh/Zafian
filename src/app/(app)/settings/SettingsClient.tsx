@@ -10,8 +10,9 @@ import { Input, Select, Textarea } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { Numpad } from "@/components/ui/Numpad";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
+import { ReceiptPaper } from "@/components/pos/ReceiptPaper";
 import { useUI } from "@/store/ui";
-import { btPrintReceipt } from "@/lib/bt-printer";
+import { btPrintReceipt, btSavedName, btSendRaw } from "@/lib/bt-printer";
 import {
   saveSettings,
   saveUser,
@@ -85,6 +86,8 @@ export function SettingsClient({
   }>({ name: "", email: "", role: "CASHIER", active: true, password: "", pin: "" });
 
   const [testReceipt, setTestReceipt] = useState<Awaited<ReturnType<typeof getTestReceipt>>["receipt"] | null>(null);
+  const [calBusy, setCalBusy] = useState(false);
+  const btSavedPrinter = btSavedName();
 
   // logo yang dipakai untuk pratinjau tes struk: upload baru > tersimpan > kosong
   const effectiveLogo = form.logoUrl || logoUrl || "";
@@ -95,6 +98,71 @@ export function SettingsClient({
     setBusy(false);
     if (res.ok) toast("Pengaturan disimpan", "success");
     else toast(res.error ?? "Gagal", "error");
+  };
+
+  /** Cetak pola kalibrasi: cek perataan, lebar kolom 32/48 kolom, karakter Rp, QR, cut. */
+  const handleCalibration = async (widthMm: 58 | 80) => {
+    setCalBusy(true);
+    try {
+      const W = widthMm === 80 ? 48 : 32;
+      const align = (form.receiptAlign as "AUTO" | "SPACE" | "LEFT") ?? "AUTO";
+      const enc = new TextEncoder();
+      const out: number[] = [];
+      const push = (s: string) => {
+        for (const b of enc.encode(s)) out.push(b);
+      };
+      const cmd = (...b: number[]) => out.push(...b);
+      const raw = (s: string) => push(s + "\n");
+      const row = (l: string, v: string) => raw(l + " ".repeat(Math.max(1, W - l.length - v.length)) + v);
+      const ctr = (s: string) => {
+        if (align === "LEFT") return raw(s);
+        if (align !== "SPACE") cmd(0x1b, 0x61, 0x01);
+        raw(" ".repeat(Math.max(0, Math.floor((W - s.length) / 2))) + s);
+        if (align !== "SPACE") cmd(0x1b, 0x61, 0x00);
+      };
+
+      cmd(0x1b, 0x40);
+      ctr("=== KALIBRASI ===");
+      ctr(form.storeName);
+      ctr(`${widthMm}mm / ${W} kolom`);
+      raw("-".repeat(W));
+      row("Kiri", "Kanan");
+      row("Rp 12.345", "Rp 678.900");
+      raw("0123456789".repeat(5).slice(0, W));
+      raw("abcdefghij".repeat(5).slice(0, W));
+      raw("-".repeat(W));
+      ctr("CENTER OK");
+      ctr("promo line 1");
+      ctr("promo line 2");
+      raw("-".repeat(W));
+      // QR: kotak kecil
+      if (align !== "LEFT") cmd(0x1b, 0x61, 0x01);
+      {
+        const d = enc.encode("KALIS-TEST");
+        cmd(0x1d, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00);
+        cmd(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, 0x05);
+        cmd(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31);
+        cmd(0x1d, 0x28, 0x6b, (d.length + 3) % 256, Math.floor((d.length + 3) / 256), 0x31, 0x50, 0x30, ...d);
+        cmd(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30);
+      }
+      if (align !== "LEFT") cmd(0x1b, 0x61, 0x00);
+      push("\n\n\n");
+      cmd(0x1d, 0x56, 0x42, 0x00);
+
+      const bytes = new Uint8Array(out);
+      if (form.useBtPrinter) {
+        await btSendRaw(bytes);
+        toast(`Pola kalibrasi ${widthMm}mm terkirim ke printer Bluetooth`, "success");
+      } else {
+        const { qzSendRaw } = await import("@/lib/qz");
+        await qzSendRaw(bytes, widthMm);
+        toast(`Pola kalibrasi ${widthMm}mm terkirim via QZ Tray`, "success");
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Gagal kalibrasi", "error");
+    } finally {
+      setCalBusy(false);
+    }
   };
 
   const handleTestPrint = async () => {
@@ -123,6 +191,10 @@ export function SettingsClient({
           total: res.receipt.total,
           paymentLabel: "Tunai",
           footer: form.footerReceipt || undefined,
+          promoText: form.promoText || undefined,
+          receiptQr: form.receiptQr,
+          qrText: form.qrText?.trim() ? form.qrText : res.receipt.orderNo,
+          alignMode: (form.receiptAlign as "AUTO" | "SPACE" | "LEFT") ?? "AUTO",
           widthMm: form.receiptSize === 80 ? 80 : 58,
         });
         toast("Tes struk terkirim ke printer Bluetooth", "success");
@@ -414,9 +486,145 @@ export function SettingsClient({
                 </p>
               )}
 
-              <Button variant="dark" className="w-full" disabled={busy} onClick={handleTestPrint}>
-                🧪 Tes Cetak Struk
-              </Button>
+              {/* ===== PERATAAN HEADER ===== */}
+              <div>
+                <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink/70">
+                  Perataan Header Struk
+                </span>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { v: "AUTO", d: "Perintah printer" },
+                    { v: "SPACE", d: "Pad spasi manual" },
+                    { v: "LEFT", d: "Rata kiri semua" },
+                  ] as const).map((a) => (
+                    <button
+                      key={a.v}
+                      onClick={() => setForm((f) => ({ ...f, receiptAlign: a.v }))}
+                      className={cn(
+                        "rounded-lg border-[2.5px] border-ink px-2 py-2 text-center shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none",
+                        form.receiptAlign === a.v ? "bg-sun" : "bg-white"
+                      )}
+                    >
+                      <span className="block text-xs font-bold">{a.v}</span>
+                      <span className="block text-[9px] font-semibold text-ink/50">{a.d}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-[10px] font-semibold text-ink/50">
+                  Header tidak center? Coba "SPACE" (beberapa printer BLE mengabaikan perintah perataan).
+                </p>
+              </div>
+
+              {/* ===== PROMO & QR ===== */}
+              <Textarea
+                label="Teks Promo (opsional, tampil di struk — Enter untuk baris baru)"
+                value={form.promoText}
+                onChange={(e) => setForm((f) => ({ ...f, promoText: e.target.value }))}
+                rows={2}
+                placeholder="mis. Beli 2 Gratis 1 / Follow IG @kedaikita"
+              />
+              <label className="flex items-center gap-2 rounded-lg border-[2.5px] border-ink bg-white px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  checked={form.receiptQr}
+                  onChange={(e) => setForm((f) => ({ ...f, receiptQr: e.target.checked }))}
+                  className="h-4 w-4 accent-yellow-400"
+                />
+                <span className="text-sm font-bold">
+                  Tampilkan QR di struk
+                  <span className="block text-[11px] font-semibold text-ink/50">
+                    Isi QR dikosongkan = nomor order (untuk pelacakan)
+                  </span>
+                </span>
+              </label>
+              {form.receiptQr && (
+                <Input
+                  label="Isi QR (opsional — kosongkan untuk nomor order)"
+                  value={form.qrText}
+                  onChange={(e) => setForm((f) => ({ ...f, qrText: e.target.value }))}
+                  placeholder="mis. https://instagram.com/kedaikita"
+                />
+              )}
+
+              {/* ===== PANEL KALIBRASI ===== */}
+              <div className="rounded-xl border-[2.5px] border-ink bg-cream p-3">
+                <p className="mb-2 font-display text-sm font-bold uppercase tracking-wide">🔧 Kalibrasi Printer</p>
+                <p className="mb-2 text-[11px] font-semibold text-ink/60">
+                  Cetak pola tes untuk cek perataan, lebar kolom, dan karakter. Bandingkan dengan
+                  pratinjau di bawah.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="dark" disabled={busy} onClick={handleTestPrint}>
+                    🧪 Tes Struk Penuh
+                  </Button>
+                  <Button
+                    variant="dark"
+                    disabled={calBusy}
+                    onClick={() => handleCalibration(form.receiptSize === 80 ? 80 : 58)}
+                  >
+                    📐 Pola Kalibrasi
+                  </Button>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <Button disabled={busy || calBusy} onClick={() => handleCalibration(58)}>
+                    Cetak 58mm
+                  </Button>
+                  <Button disabled={busy || calBusy} onClick={() => handleCalibration(80)}>
+                    Cetak 80mm
+                  </Button>
+                </div>
+                {btSavedPrinter && (
+                  <p className="mt-2 text-center text-[10px] font-semibold text-ink/50">
+                    Printer BT tersimpan: <b>{btSavedPrinter}</b>
+                  </p>
+                )}
+              </div>
+
+              {/* ===== PRATINJAU STRUK ===== */}
+              <div className="rounded-xl border-[2.5px] border-ink bg-cream p-3">
+                <p className="mb-2 font-display text-sm font-bold uppercase tracking-wide">👁️ Pratinjau Struk</p>
+                <p className="mb-2 text-[11px] font-semibold text-ink/60">
+                  Tampilan di printer mengikuti pengaturan di atas (perataan, promo, QR).
+                </p>
+                <div className="flex justify-center">
+                  <ReceiptPaper
+                    order={{
+                      id: "preview",
+                      orderNo: "PRV-001",
+                      orderType: "TAKE_AWAY",
+                      tableNote: null,
+                      status: "COMPLETED",
+                      subtotal: 47000,
+                      discount: 0,
+                      tax: 0,
+                      total: 47000,
+                      refundAmount: 0,
+                      paymentMethod: "CASH",
+                      cashReceived: 50000,
+                      change: 3000,
+                      createdAt: new Date().toISOString(),
+                      cashierName: "Kasir",
+                      items: [
+                        { name: "Kopi Susu Gula Aren", qty: 1, price: 22000, discount: 0, note: null },
+                        { name: "Roti Bakar Telur", qty: 1, price: 23000, discount: 0, note: "tanpa bawang" },
+                      ],
+                    }}
+                    store={{
+                      name: form.storeName,
+                      address: form.address,
+                      phone: form.phone,
+                      footer: form.footerReceipt,
+                      receiptSize: form.receiptSize,
+                      logoUrl: effectiveLogo,
+                      promoText: form.promoText,
+                      receiptQr: form.receiptQr,
+                      qrText: form.qrText,
+                    }}
+                    size={form.receiptSize === 80 ? 80 : 58}
+                  />
+                </div>
+              </div>
+
               <Button className="w-full" disabled={busy} onClick={handleSave}>
                 {busy ? "Menyimpan…" : "Simpan"}
               </Button>
@@ -594,6 +802,7 @@ export function SettingsClient({
         useQzTray={form.useQzTray}
         qzPrinter={form.printerName}
         useBtPrinter={form.useBtPrinter}
+        receiptAlign={(form.receiptAlign as "AUTO" | "SPACE" | "LEFT") ?? "AUTO"}
         title="Tes Struk"
       />
     </div>

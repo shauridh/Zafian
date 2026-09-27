@@ -82,11 +82,31 @@ export interface EscposReceiptOptions {
   cashReceived?: number | null;
   change?: number | null;
   footer?: string;
+  promoText?: string;
+  receiptQr?: boolean;
+  qrText?: string;
+  alignMode?: "AUTO" | "SPACE" | "LEFT";
   widthMm?: 58 | 80;
 }
 
 const rp = (n: number) =>
-  new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n);
+  "Rp " + new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(n);
+
+/** Kirim byte ESC/POS mentah via QZ Tray (untuk pola kalibrasi). */
+export async function qzSendRaw(bytes: Uint8Array, widthMm: 58 | 80 = 58): Promise<void> {
+  await qzConnect();
+  const qz = window.qz;
+  const printer = (await qz.printers.find())?.[0];
+  if (!printer) throw new Error("Printer thermal tidak ditemukan");
+  const cfg = qz.configs.create(printer, {
+    units: "mm",
+    size: { width: widthMm === 58 ? 58 : 80, height: 0 },
+    forceTextEncoding: "utf-8",
+  });
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  await qz.print(cfg, [{ type: "raw", format: "command", data: bin }]);
+}
 
 /**
  * Cetak struk ESC/POS via QZ Tray. Konteks print 58mm/80mm mengikuti widthMm.
@@ -139,6 +159,16 @@ export async function qzPrintReceipt(opts: EscposReceiptOptions): Promise<void> 
   }
 
   data.push(line());
+
+  if (opts.promoText) {
+    for (const p of opts.promoText.split("\n").filter((x) => x.trim())) {
+      data.push({ type: "raw", format: "command", data: "\x1Ba\x01" });
+      data.push(text(`${p.trim()}\n`));
+      data.push({ type: "raw", format: "command", data: "\x1Ba\x00" });
+    }
+    data.push(line());
+  }
+
   data.push(text(`Subtotal${rp(opts.subtotal).padStart(24)}`));
   if (opts.discount) data.push(text(`Diskon -${rp(opts.discount).padStart(22)}`));
   if (opts.tax) data.push(text(`PPN${rp(opts.tax).padStart(28)}`));
@@ -154,6 +184,23 @@ export async function qzPrintReceipt(opts: EscposReceiptOptions): Promise<void> 
     data.push(text(`${opts.footer}\n`));
     data.push({ type: "raw", format: "command", data: "\x1Ba\x00" });
   }
+
+  // QR code (GS ( k model 2)
+  if (opts.receiptQr && opts.qrText) {
+    data.push({ type: "raw", format: "command", data: "\x1Ba\x01" });
+    const enc = new TextEncoder();
+    const qrData = enc.encode(opts.qrText);
+    const lenL = (qrData.length + 3) % 256;
+    const lenH = Math.floor((qrData.length + 3) / 256);
+    const bin = (arr: number[]) => String.fromCharCode(...arr);
+    data.push({ type: "raw", format: "command", data: bin([0x1d, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00]) });
+    data.push({ type: "raw", format: "command", data: bin([0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, 0x06]) });
+    data.push({ type: "raw", format: "command", data: bin([0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31]) });
+    data.push({ type: "raw", format: "command", data: bin([0x1d, 0x28, 0x6b, lenL, lenH, 0x31, 0x50, 0x30, ...qrData]) });
+    data.push({ type: "raw", format: "command", data: bin([0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30]) });
+    data.push({ type: "raw", format: "command", data: "\x1Ba\x00" });
+  }
+
   data.push(text("\n\n\n"));
   data.push({ type: "raw", format: "command", data: "\x1D\x56\x42\x00" }); // cut
 

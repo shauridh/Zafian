@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import QRCode from "qrcode";
 import { cn, formatRupiah, formatDateTime, orderTypeLabel } from "@/lib/utils";
 
 export interface ReceiptOrderData {
@@ -32,6 +34,9 @@ export interface ReceiptStoreData {
   useQzTray?: boolean;
   qzPrinter?: string;
   useBtPrinter?: boolean;
+  promoText?: string;
+  receiptQr?: boolean;
+  qrText?: string;
 }
 
 export function ReceiptPaper({
@@ -49,6 +54,18 @@ export function ReceiptPaper({
 
   const paymentLabel =
     order.paymentMethod === "CASH" ? "Tunai" : order.paymentMethod === "QRIS" ? "QRIS" : "Ojol";
+
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!store.receiptQr) {
+      setQrDataUrl(null);
+      return;
+    }
+    const text = store.qrText?.trim() ? store.qrText : order.orderNo;
+    QRCode.toDataURL(text, { margin: 0, width: 160 })
+      .then(setQrDataUrl)
+      .catch(() => setQrDataUrl(null));
+  }, [store.receiptQr, store.qrText, order.orderNo]);
 
   return (
     <div
@@ -107,6 +124,17 @@ export function ReceiptPaper({
 
         <div className="my-2 border-t-2 border-dashed border-ink/40" />
 
+        {store.promoText?.trim() && (
+          <>
+            <div className="space-y-0.5 text-center font-bold leading-snug">
+              {store.promoText.split("\n").filter((x) => x.trim()).map((p, i) => (
+                <p key={i}>{p.trim()}</p>
+              ))}
+            </div>
+            <div className="my-2 border-t-2 border-dashed border-ink/40" />
+          </>
+        )}
+
         <div className="space-y-0.5 leading-snug">
           <p className="flex justify-between"><span>Subtotal</span><span>{formatRupiah(order.subtotal)}</span></p>
           {order.discount > 0 && (
@@ -143,6 +171,13 @@ export function ReceiptPaper({
         </div>
 
         <div className="my-2 border-t-2 border-dashed border-ink/40" />
+
+        {qrDataUrl && (
+          <div className="mb-2 flex flex-col items-center gap-1">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={qrDataUrl} alt="QR" className="h-20 w-20" />
+          </div>
+        )}
 
         <p className="text-center leading-snug opacity-80">{store.footer}</p>
       </div>

@@ -30,7 +30,7 @@ export function btForget(): void {
   localStorage.removeItem(STORAGE_KEY);
 }
 
-/** Tombol "Cetak" yang memicu requestDevice harus dipanggil dari klik user. */
+/** Tombol "Cetak" yang memicu requestDevice harus dipicu dari klik user. */
 async function pickDevice(): Promise<any> {
   const bt = (navigator as any).bluetooth;
   if (!bt) throw new Error("Browser ini tidak mendukung Web Bluetooth. Gunakan Chrome di Android/desktop.");
@@ -109,6 +109,20 @@ export async function btTestPrint(): Promise<void> {
   await writeData(char, new Uint8Array([0x1d, 0x56, 0x42, 0x00])); // cut
 }
 
+/** Kirim byte mentah (mis. pola kalibrasi) ke printer Bluetooth. */
+export async function btSendRaw(bytes: Uint8Array): Promise<void> {
+  const { char } = await connectDevice();
+  await writeData(char, bytes);
+}
+
+/* ========================= PERATAAN =========================
+ * AUTO  : pakai perintah ESC/POS \x1Ba\x01 (standar — akurat di mayoritas printer)
+ * SPACE : center manual dengan spasi (untuk printer yang mengabaikan \x1Ba\x01)
+ * LEFT  : semua rata kiri
+ * Kolom kanan (harga/total) selalu di-hitung manual via padding, jadi tidak terpengaruh.
+ */
+export type AlignMode = "AUTO" | "SPACE" | "LEFT";
+
 export interface BtReceiptOptions {
   storeName: string;
   storeAddress?: string;
@@ -126,38 +140,58 @@ export interface BtReceiptOptions {
   cashReceived?: number | null;
   change?: number | null;
   footer?: string;
+  promoText?: string;
+  receiptQr?: boolean;
+  qrText?: string;
+  alignMode?: AlignMode;
   widthMm?: 58 | 80;
 }
 
-const rp = (n: number) =>
-  new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n);
+/* "Rp" + NBSP dari Intl membuat karakter aneh di font printer → format ASCII murni. */
+export const rpAscii = (n: number) =>
+  "Rp " + new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(n);
 
-/** Cetak struk ESC/POS via Bluetooth. widthChars: 32 (58mm) / 48 (80mm). */
-export async function btPrintReceipt(opts: BtReceiptOptions): Promise<void> {
-  const { char } = await connectDevice();
+/** Bangun array byte struk — dipisah agar bisa dipakai ulang (kalibrasi/tes & QZ). */
+export function buildReceiptBytes(opts: BtReceiptOptions): Uint8Array {
   const W = opts.widthMm === 80 ? 48 : 32;
+  const align: AlignMode = opts.alignMode ?? "AUTO";
   const enc = new TextEncoder();
   const out: number[] = [];
 
   const push = (s: string) => {
     for (const b of enc.encode(s)) out.push(b);
   };
-  const line = () => push("-".repeat(W) + "\n");
+  const cmd = (...bytes: number[]) => out.push(...bytes);
+
+  const raw = (s: string) => push(s + "\n");
+  const line = () => raw("-".repeat(W));
   const row = (label: string, value: string) => {
     const space = Math.max(1, W - label.length - value.length);
-    push(label + " ".repeat(space) + value + "\n");
-  };
-  const center = (s: string) => {
-    const pad = Math.max(0, Math.floor((W - s.length) / 2));
-    push(" ".repeat(pad) + s + "\n");
+    raw(label + " ".repeat(space) + value);
   };
 
-  push("\x1B@"); // init
-  push("\x1Ba\x01"); // center
-  center(opts.storeName);
-  push("\x1Ba\x00"); // left
-  if (opts.storeAddress) push(`${opts.storeAddress}\n`);
-  if (opts.storePhone) push(`Telp: ${opts.storePhone}\n`);
+  // center: kalau AUTO pakai perintah printer; kalau SPACE pakai padding manual
+  const centerOn = () => (align === "SPACE" ? undefined : cmd(0x1b, 0x61, 0x01));
+  const centerOff = () => (align === "SPACE" ? undefined : cmd(0x1b, 0x61, 0x00));
+  const centerText = (s: string) => {
+    if (align === "LEFT") return raw(s);
+    const pad = Math.max(0, Math.floor((W - s.length) / 2));
+    raw(" ".repeat(pad) + s);
+  };
+
+  cmd(0x1b, 0x40); // init
+  centerOn();
+  centerText(opts.storeName);
+  centerOff();
+  if (opts.storeAddress) {
+    if (align === "LEFT") raw(opts.storeAddress);
+    else centerText(opts.storeAddress);
+  }
+  if (opts.storePhone) {
+    const t = `Telp: ${opts.storePhone}`;
+    if (align === "LEFT") raw(t);
+    else centerText(t);
+  }
   line();
 
   row("No", opts.orderNo);
@@ -167,30 +201,61 @@ export async function btPrintReceipt(opts: BtReceiptOptions): Promise<void> {
   line();
 
   for (const i of opts.items) {
-    push(`${i.name}\n`);
+    raw(i.name);
     const lineTotal = i.price * i.qty - i.discount * i.qty;
-    row(`  ${i.qty} x ${rp(i.price)}`, rp(lineTotal));
-    if (i.note) push(`  > ${i.note}\n`);
+    row(`  ${i.qty} x ${rpAscii(i.price)}`, rpAscii(lineTotal));
+    if (i.note) raw(`  > ${i.note}`);
   }
   line();
 
-  row("Subtotal", rp(opts.subtotal));
-  if (opts.discount) row("Diskon", "-" + rp(opts.discount));
-  if (opts.tax) row("PPN", rp(opts.tax));
-  push("\x1B!\x30"); // double height+width
-  row("TOTAL", rp(opts.total));
-  push("\x1B!\x00");
-  row(opts.paymentLabel, rp(opts.cashReceived ?? opts.total));
-  if (opts.change && opts.change > 0) row("Kembali", rp(opts.change));
+  // PROMO (multi-baris)
+  if (opts.promoText) {
+    for (const p of opts.promoText.split("\n").filter((x) => x.trim())) {
+      if (align === "LEFT") raw(p);
+      else centerText(p.trim());
+    }
+    line();
+  }
+
+  row("Subtotal", rpAscii(opts.subtotal));
+  if (opts.discount) row("Diskon", "-" + rpAscii(opts.discount));
+  if (opts.tax) row("PPN", rpAscii(opts.tax));
+  cmd(0x1b, 0x21, 0x30); // double height+width
+  row("TOTAL", rpAscii(opts.total));
+  cmd(0x1b, 0x21, 0x00);
+  row(opts.paymentLabel, rpAscii(opts.cashReceived ?? opts.total));
+  if (opts.change && opts.change > 0) row("Kembali", rpAscii(opts.change));
   line();
+
+  // QR code (GS ( k — model 2)
+  if (opts.receiptQr && opts.qrText) {
+    if (align !== "LEFT") centerOn();
+    const data = enc.encode(opts.qrText);
+    const lenL = (data.length + 3) % 256;
+    const lenH = Math.floor((data.length + 3) / 256);
+    cmd(0x1d, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00); // model 2
+    cmd(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, 0x06); // ukuran modul 6
+    cmd(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31); // error correction M
+    cmd(0x1d, 0x28, 0x6b, lenL, lenH, 0x31, 0x50, 0x30, ...data); // simpan data
+    cmd(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30); // cetak
+    if (align !== "LEFT") centerOff();
+    push("\n");
+  }
 
   if (opts.footer) {
-    push("\x1Ba\x01");
-    push(`${opts.footer}\n`);
-    push("\x1Ba\x00");
+    if (align !== "LEFT") centerOn();
+    if (align === "LEFT") raw(opts.footer);
+    else centerText(opts.footer);
+    if (align !== "LEFT") centerOff();
   }
   push("\n\n\n");
-  out.push(0x1d, 0x56, 0x42, 0x00); // cut
+  cmd(0x1d, 0x56, 0x42, 0x00); // cut
 
-  await writeData(char, new Uint8Array(out));
+  return new Uint8Array(out);
+}
+
+/** Cetak struk ESC/POS via Bluetooth. */
+export async function btPrintReceipt(opts: BtReceiptOptions): Promise<void> {
+  const { char } = await connectDevice();
+  await writeData(char, buildReceiptBytes(opts));
 }
