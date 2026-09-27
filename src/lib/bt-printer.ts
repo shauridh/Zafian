@@ -30,6 +30,26 @@ export function btForget(): void {
   localStorage.removeItem(STORAGE_KEY);
 }
 
+/** Lupakan printer tersimpan + putus koneksi aktif (untuk pairing ulang bersih). */
+export async function btForgetDevice(): Promise<void> {
+  try {
+    if (cached?.server?.connected) cached.server.disconnect();
+  } catch {
+    /* noop */
+  }
+  cached = null;
+  const bt = (navigator as any).bluetooth;
+  try {
+    const devices = await bt?.getDevices?.();
+    const saved = btSavedName();
+    const found = (devices as any[] | undefined)?.find((d) => d.name === saved);
+    await found?.forget?.();
+  } catch {
+    /* forget() butuh Chrome newer — abaikan */
+  }
+  btForget();
+}
+
 /** Tombol "Cetak" yang memicu requestDevice harus dipicu dari klik user. */
 async function pickDevice(): Promise<any> {
   const bt = (navigator as any).bluetooth;
@@ -57,10 +77,41 @@ async function connectDevice(forcePick = false): Promise<any> {
   }
   const device = await pickDevice();
   localStorage.setItem(STORAGE_KEY, device.name || "Printer Bluetooth");
-  return connectGatt(device);
+  return connectGattResilient(device);
 }
 
 let cached: { server: any; char: any } | null = null;
+
+/**
+ * Konek GATT dengan retry. "Connection attempt failed" umumnya karena:
+ * printer tidur / koneksi setengah-terbuka dari app lain / MTU belum siap.
+ * Reset koneksi + tunggu + coba lagi biasanya menyelesaikan.
+ */
+async function connectGattResilient(device: any): Promise<any> {
+  const MAX = 3;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX; attempt++) {
+    try {
+      // Reset koneksi setengah-terbuka dari percobaan/sesi sebelumnya
+      try {
+        device.gatt.disconnect();
+        await new Promise((r) => setTimeout(r, 250));
+      } catch {
+        /* perangkat mungkin belum pernah konek — abaikan */
+      }
+      return await connectGatt(device);
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[bt] percobaan konek ${attempt}/${MAX} gagal:`, e);
+      if (attempt < MAX) await new Promise((r) => setTimeout(r, 600 * attempt));
+    }
+  }
+  throw new Error(
+    "Gagal konek ke printer setelah 3 percobaan. Cek: (1) printer menyala & kertas terpasang, " +
+      "(2) tidak sedang dipakai app lain (putuskan dulu), " +
+      "(3) jarak < 2 m. Lalu coba lagi, atau tap Lupakan Printer lalu pairing ulang."
+  );
+}
 
 async function connectGatt(device: any): Promise<any> {
   device.addEventListener?.("gattserverdisconnected", () => {
@@ -68,6 +119,7 @@ async function connectGatt(device: any): Promise<any> {
     cached = null;
   });
   const server = await device.gatt.connect();
+  await new Promise((r) => setTimeout(r, 150)); // beri waktu GATT discovery
   // Coba service yang umum dipakai printer thermal
   const candidates = [
     { s: "0000fff0-0000-1000-8000-00805f9b34fb", c: "0000fff2-0000-1000-8000-00805f9b34fb" },
@@ -108,7 +160,7 @@ export async function btEnsureConnected(): Promise<boolean> {
     const devices = await bt.getDevices();
     const found = (devices as any[]).find((d) => d.name === btSavedName());
     if (!found) return false;
-    cached = await connectGatt(found);
+    cached = await connectGattResilient(found);
     return true;
   } catch (e) {
     console.warn("[bt] auto-connect gagal (printer mati/di luar jangkauan):", e);

@@ -12,7 +12,7 @@ import { Numpad } from "@/components/ui/Numpad";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
 import { ReceiptPaper } from "@/components/pos/ReceiptPaper";
 import { useUI } from "@/store/ui";
-import { btPrintReceipt, btSavedName, btSendRaw, btEnsureConnected } from "@/lib/bt-printer";
+import { btPrintReceipt, btSavedName, btSendRaw, btEnsureConnected, btForgetDevice } from "@/lib/bt-printer";
 import {
   saveSettings,
   saveUser,
@@ -88,7 +88,8 @@ export function SettingsClient({
   const [testReceipt, setTestReceipt] = useState<Awaited<ReturnType<typeof getTestReceipt>>["receipt"] | null>(null);
   const [calBusy, setCalBusy] = useState(false);
   const [btBusy, setBtBusy] = useState(false);
-  const btSavedPrinter = btSavedName();
+  const [btForgetTick, setBtForgetTick] = useState(0);
+  const btSavedPrinter = btForgetTick >= 0 ? btSavedName() : null;
 
   // logo yang dipakai untuk pratinjau tes struk: upload baru > tersimpan > kosong
   const effectiveLogo = form.logoUrl || logoUrl || "";
@@ -508,9 +509,23 @@ export function SettingsClient({
                       {btBusy ? "Menyambung…" : "🔗 Sambungkan Printer"}
                     </Button>
                     {btSavedPrinter && (
-                      <span className="text-[10px]">
-                        Tersimpan: <b>{btSavedPrinter}</b>
-                      </span>
+                      <>
+                        <span className="text-[10px]">
+                          Tersimpan: <b>{btSavedPrinter}</b>
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="candy"
+                          disabled={btBusy}
+                          onClick={async () => {
+                            await btForgetDevice();
+                            setBtForgetTick((t) => t + 1);
+                            toast("Printer dilupakan — lakukan pairing ulang via Tes Struk", "info");
+                          }}
+                        >
+                          🗑️ Lupakan
+                        </Button>
+                      </>
                     )}
                   </div>
                 </div>
