@@ -26,8 +26,16 @@ interface OrderLite {
 interface UsageLite {
   name: string;
   unit: string;
+  type: string;
   qty: number;
   createdAt: string;
+}
+
+interface IngredientLite {
+  name: string;
+  unit: string;
+  stock: number;
+  minStock: number;
 }
 
 const PERIODS = [
@@ -167,23 +175,41 @@ export function ReportsClient({
     }
     const maxHour = Math.max(1, ...hourMap);
 
-    // Pemakaian bahan
-    const usageMap = new Map<string, { qty: number; unit: string }>();
+    // Pemakaian bahan per tipe: IN (belanja), SALE (terpakai), ADJUSTMENT (opname), WASTE, VOID
+    const ingMap = new Map<
+      string,
+      { unit: string; bought: number; used: number; adjusted: number; wasted: number }
+    >();
+    const bump = (name: string, unit: string, type: string, qty: number) => {
+      const e = ingMap.get(name) ?? { unit, bought: 0, used: 0, adjusted: 0, wasted: 0 };
+      if (type === "IN") e.bought += qty;
+      else if (type === "SALE") e.used += Math.abs(qty);
+      else if (type === "ADJUSTMENT") e.adjusted += qty;
+      else if (type === "WASTE" || type === "VOID") e.wasted += Math.abs(qty);
+      ingMap.set(name, e);
+    };
     for (const u of ingredientUsage) {
       if (new Date(u.createdAt) < curStart) continue;
-      const c = usageMap.get(u.name) ?? { qty: 0, unit: u.unit };
-      c.qty += u.qty;
-      usageMap.set(u.name, c);
+      bump(u.name, u.unit, u.type, u.qty);
     }
-    const usage = [...usageMap.entries()]
+    const ingUsage = [...ingMap.entries()]
       .map(([name, v]) => ({ name, ...v }))
-      .sort((a, b) => b.qty - a.qty);
+      .sort((a, b) => b.used - a.used);
+
+    const usage = ingUsage.map((e) => ({
+      name: e.name,
+      unit: e.unit,
+      bought: e.bought,
+      used: e.used,
+      adjusted: e.adjusted,
+      wasted: e.wasted,
+    }));
 
     return {
       revenue, prevRevenue, grossProfit, prevGrossProfit, trxCount, prevTrxCount,
       avg, prevAvg, totalDiscount, totalRefund,
       byChannel: [...byChannel.entries()].sort((a, b) => b[1].total - a[1].total),
-      byPayment, daily, topItems, hourMap, maxHour, usage,
+      byPayment, daily, topItems, hourMap, maxHour, usage, ingUsage,
       completed: cur.filter((o) => o.status === "COMPLETED"),
     };
   }, [orders, ingredientUsage, days, channelFilter, paymentFilter]);
@@ -192,7 +218,7 @@ export function ReportsClient({
   const maxChannel = Math.max(1, ...data.byChannel.map(([, v]) => v.total));
 
   const exportCSV = () => {
-    const rows = [
+    const rows: (string | number)[][] = [
       ["No Order", "Tanggal", "Channel", "Pembayaran", "Status", "Subtotal", "Diskon", "PPN", "Total", "Refund", "Net", "HPP", "Laba"],
       ...data.completed.map((o) => [
         o.orderNo,
@@ -209,8 +235,20 @@ export function ReportsClient({
         String(o.costTotal),
         String(o.total - o.costTotal),
       ]),
+      ["Bahan", "Satuan", "Belanja", "Terpakai", "Opname", "Rusak", "Sisa Stok"],
+      ...data.usage.map((u) => [
+        u.name,
+        u.unit,
+        String(Math.round(u.bought * 100) / 100),
+        String(Math.round(u.used * 100) / 100),
+        String(Math.round(u.adjusted * 100) / 100),
+        String(Math.round(u.wasted * 100) / 100),
+        String(
+          Math.round((ingredients.find((i) => i.name === u.name)?.stock ?? 0) * 100) / 100
+        ),
+      ]),
     ];
-    const csv = rows.map((r) => r.map((c) => `"${c}"`).join(";")).join("\n");
+    const csv = rows.map((r) => r.map((c) => `"${String(c)}"`).join(";")).join("\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -434,28 +472,52 @@ export function ReportsClient({
           <div className="mt-1 flex justify-between text-[8px] font-bold text-ink/40">
             <span>0</span><span>6</span><span>12</span><span>18</span><span>23</span>
           </div>
-        </Card>
-
-        {/* Pemakaian bahan */}
+        </Card>        {/* Pemakaian bahan */}
         <Card className="p-4">
           <h2 className="mb-2 font-display text-sm font-bold uppercase tracking-wide">
-            🧪 Pemakaian Bahan (dari resep)
+            🧪 Pemakaian Bahan (resep) · Belanja · Opname · Rusak
           </h2>
           {data.usage.length === 0 ? (
             <p className="text-xs font-bold text-ink/40">Belum ada pemakaian</p>
           ) : (
-            <div className="divide-y-2 divide-dashed divide-ink/20">
-              {data.usage.map((u) => (
-                <div key={u.name} className="flex items-center justify-between py-2">
-                  <span className="text-sm font-bold">{u.name}</span>
-                  <span className="num text-sm font-bold">
-                    {formatNumber(Math.round(u.qty * 100) / 100)} {u.unit}
-                  </span>
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b-2 border-ink text-[10px] font-bold uppercase tracking-wide text-ink/60">
+                    <th className="py-1.5 pr-2">Bahan</th>
+                    <th className="py-1.5 pr-2 text-right">🛒 Belanja</th>
+                    <th className="py-1.5 pr-2 text-right">🔥 Terpakai</th>
+                    <th className="py-1.5 pr-2 text-right">⚖️ Opname</th>
+                    <th className="py-1.5 pr-2 text-right">🗑️ Rusak</th>
+                    <th className="py-1.5 text-right">📦 Sisa Stok</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-dashed divide-ink/20">
+                  {data.usage.map((u) => {
+                    const stock = ingredients.find((i) => i.name === u.name);
+                    return (
+                      <tr key={u.name} className="font-bold">
+                        <td className="py-1.5 pr-2">{u.name}</td>
+                        <td className="num py-1.5 pr-2 text-right text-lime-700">
+                          +{formatNumber(Math.round(u.bought * 100) / 100)}
+                        </td>
+                        <td className="num py-1.5 pr-2 text-right">{formatNumber(Math.round(u.used * 100) / 100)} {u.unit}</td>
+                        <td className="num py-1.5 pr-2 text-right text-sun-700">
+                          {u.adjusted !== 0 ? `${u.adjusted > 0 ? "+" : ""}${formatNumber(Math.round(u.adjusted * 100) / 100)}` : "—"}
+                        </td>
+                        <td className="num py-1.5 pr-2 text-right text-danger">
+                          {u.wasted !== 0 ? `−${formatNumber(Math.round(u.wasted * 100) / 100)}` : "—"}
+                        </td>
+                        <td className="num py-1.5 text-right">
+                          {stock ? `${formatNumber(Math.round(stock.stock * 100) / 100)} ${u.unit}` : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-          )}
-        </Card>
+          )}</Card>
 
         {/* Stok menipis */}
         {ingredients.some((i) => i.stock <= i.minStock) && (

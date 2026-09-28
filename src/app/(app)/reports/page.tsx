@@ -32,7 +32,7 @@ export default async function ReportsPage() {
       },
     }),
     prisma.ingredientMovement.findMany({
-      where: { createdAt: { gte: since }, type: "SALE" },
+      where: { createdAt: { gte: since } },
       include: { ingredient: { select: { name: true, unit: true } } },
     }),
     prisma.ingredient.findMany({ select: { name: true, unit: true, stock: true, minStock: true } }),
@@ -63,7 +63,8 @@ export default async function ReportsPage() {
       ingredientUsage={movements.map((m) => ({
         name: m.ingredient.name,
         unit: m.ingredient.unit,
-        qty: Math.abs(m.qty),
+        type: m.type,
+        qty: m.qty,
         createdAt: m.createdAt.toISOString(),
       }))}
       ingredients={ingredients}

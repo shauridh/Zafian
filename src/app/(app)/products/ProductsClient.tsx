@@ -11,9 +11,9 @@ import { Badge } from "@/components/ui/Badge";
 import { ProductImage } from "@/components/pos/ProductImage";
 import { Numpad } from "@/components/ui/Numpad";
 import { useUI } from "@/store/ui";
-import { saveProduct, deleteProduct, saveCategory } from "./actions";
+import { saveProduct, deleteProduct, saveCategory, adjustReadyQty } from "./actions";
 import { exportExcel, importExcel } from "./excel-actions";
-import { formatRupiah } from "@/lib/utils";
+import { formatRupiah, cn } from "@/lib/utils";
 
 interface RecipeRow {
   ingredientId: string;
@@ -25,17 +25,24 @@ interface ProductRow {
   name: string;
   price: number;
   costPrice: number;
+  recipeCost: number;
+  hasRecipe: boolean;
+  readyQty: number | null;
+  readyEnabled: boolean;
   isAvailable: boolean;
   imageUrl: string | null;
   categoryId: string | null;
   categoryName: string | null;
   recipe: RecipeRow[];
+  soldQty: number;
+  revenue30d: number;
+  profit30d: number;
 }
 
 interface ProductsClientProps {
   products: ProductRow[];
   categories: { id: string; name: string }[];
-  ingredients: { id: string; name: string; unit: string }[];
+  ingredients: { id: string; name: string; unit: string; costPerUnit: number }[];
 }
 
 export function ProductsClient({ products, categories, ingredients }: ProductsClientProps) {
@@ -54,6 +61,8 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
     price: 0,
     costPrice: 0,
     isAvailable: true,
+    readyEnabled: false,
+    readyQty: 0,
     imageUrl: "" as string | null,
     recipe: [] as RecipeRow[],
   };
@@ -63,6 +72,7 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
     | { kind: "closed" }
     | { kind: "price" }
     | { kind: "cost" }
+    | { kind: "ready-qty" }
     | { kind: "recipe-qty"; index: number }
   >({ kind: "closed" });
   const [catNumpadOpen, setCatNumpadOpen] = useState(false);
@@ -82,6 +92,8 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
       price: p.price,
       costPrice: p.costPrice,
       isAvailable: p.isAvailable,
+      readyEnabled: p.readyEnabled,
+      readyQty: p.readyQty ?? 0,
       imageUrl: p.imageUrl,
       recipe: [...p.recipe],
     });
@@ -112,6 +124,8 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
       price: form.price,
       costPrice: form.costPrice,
       isAvailable: form.isAvailable,
+      readyEnabled: form.readyEnabled,
+      readyQty: form.readyQty,
       imageUrl: form.imageUrl || null,
       recipe: form.recipe.filter((r) => r.ingredientId && r.qtyPerServing > 0),
     });
@@ -195,6 +209,17 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
 
   const ingMap = new Map(ingredients.map((i) => [i.id, i]));
 
+  /** HPP otomatis dari resep di form: Σ qty per sajian × HPP satuan bahan. */
+  const recipeCostPreview = form.recipe
+    .filter((r) => r.ingredientId && r.qtyPerServing > 0)
+    .reduce((s, r) => s + r.qtyPerServing * (ingMap.get(r.ingredientId)?.costPerUnit ?? 0), 0);
+
+  const handleAdjustReady = async (p: ProductRow, delta: number) => {
+    const res = await adjustReadyQty(p.id, delta);
+    if (res.ok) router.refresh();
+    else toast(res.error ?? "Gagal", "error");
+  };
+
   return (
     <div className="min-h-dvh">
       <PageHeader
@@ -217,27 +242,58 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
 
       <div className="mx-auto max-w-6xl px-4 py-4">
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-          {products.map((p) => (
+          {products.map((p) => {
+            const marginPct = p.price > 0 ? Math.round(((p.price - p.costPrice) / p.price) * 100) : 0;
+            return (
             <Card key={p.id} className="flex gap-3 p-3">
               <ProductImage src={p.imageUrl} alt={p.name} className="h-20 w-20 shrink-0" iconSize="text-3xl" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-start justify-between gap-1">
                   <p className="truncate text-sm font-bold">{p.name}</p>
-                  <Badge
-                    className={p.isAvailable ? "bg-lime" : "bg-danger text-white"}
-                  >
-                    {p.isAvailable ? "Ready" : "Habis"}
-                    {" "}{" "}
-                  </Badge>
+                  {p.readyEnabled && p.readyQty !== null ? (
+                    <Badge className={p.readyQty > 0 ? "bg-teal" : "bg-danger text-white"}>
+                      🍽️ {p.readyQty} siap
+                    </Badge>
+                  ) : (
+                    <Badge className={p.isAvailable ? "bg-lime" : "bg-danger text-white"}>
+                      {p.isAvailable ? "Ready" : "Habis"}
+                    </Badge>
+                  )}
                 </div>
                 <p className="num text-sm font-bold">{formatRupiah(p.price)}</p>
                 <p className="text-[11px] font-semibold text-ink/50">
                   {p.categoryName ?? "Tanpa kategori"} · HPP {formatRupiah(p.costPrice)}
+                  {p.hasRecipe && p.recipeCost !== p.costPrice ? " (otr)" : ""}
                 </p>
-                {p.recipe.length > 0 && (
-                  <p className="mt-0.5 text-[11px] text-ink/50">
-                    🧪 {p.recipe.length} bahan resep
+                {p.hasRecipe && (
+                  <p className="text-[11px] font-semibold text-ink/50">
+                    🧪 HPP resep: {formatRupiah(p.recipeCost)}
+                    {p.recipeCost !== p.costPrice ? " — klik Simpan untuk pakai" : " ✓"}
                   </p>
+                )}
+                <p className="num text-[11px] font-bold text-gofood">
+                  Laba 30 hr: {formatRupiah(p.profit30d)} ({marginPct}%) · {p.soldQty}x terjual
+                </p>
+                {p.readyEnabled && p.readyQty !== null && (
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <button
+                      onClick={() => handleAdjustReady(p, -1)}
+                      className="h-7 w-7 rounded-lg border-2 border-ink bg-white text-sm font-bold shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                      aria-label={`Kurangi porsi siap ${p.name}`}
+                    >
+                      −
+                    </button>
+                    <span className="num min-w-[4.5rem] text-center text-xs font-bold">
+                      {p.readyQty} siap jual
+                    </span>
+                    <button
+                      onClick={() => handleAdjustReady(p, +1)}
+                      className="h-7 w-7 rounded-lg border-2 border-ink bg-white text-sm font-bold shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                      aria-label={`Tambah porsi siap ${p.name}`}
+                    >
+                      +
+                    </button>
+                  </div>
                 )}
                 <div className="mt-1.5 flex gap-1.5">
                   <Button size="sm" variant="ghost" className="border-2 border-ink px-2" onClick={() => openEdit(p)}>
@@ -249,7 +305,8 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
                 </div>
               </div>
             </Card>
-          ))}
+            );
+          })}
           {products.length === 0 && (
             <p className="col-span-full py-10 text-center text-sm font-bold text-ink/40">
               Belum ada produk. Tambahkan produk pertama!
@@ -311,6 +368,15 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
             </button>
           </div>
 
+          {form.recipe.some((r) => r.ingredientId && r.qtyPerServing > 0) && (
+            <p className="rounded-lg border-2 border-dashed border-ink/40 bg-cream px-3 py-2 text-xs font-semibold">
+              🧪 HPP resep saat ini: <b className="num">{formatRupiah(Math.round(recipeCostPreview))}</b>
+              {recipeCostPreview !== form.costPrice
+                ? " — otomatis dipakai saat Simpan (input HPP manual di atas diabaikan)"
+                : " ✓ sudah sesuai"}
+            </p>
+          )}
+
           <Select
             label="Kategori"
             value={form.categoryId}
@@ -332,7 +398,33 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
               className="h-4 w-4 accent-yellow-400"
             />
             <span className="text-sm font-bold">Tersedia di POS</span>
+            <span className="text-[10px] font-semibold text-ink/40">(tampil & bisa dipesan)</span>
           </label>
+
+          {/* Pelacakan porsi siap jual (etalase) */}
+          <label className="flex items-center gap-2 rounded-lg border-[2.5px] border-ink bg-white px-3 py-2.5">
+            <input
+              type="checkbox"
+              checked={form.readyEnabled}
+              onChange={(e) => setForm((f) => ({ ...f, readyEnabled: e.target.checked }))}
+              className="h-4 w-4 accent-yellow-400"
+            />
+            <span className="text-sm font-bold">
+              Lacak porsi siap jual (etalase)
+              <span className="block text-[11px] font-semibold text-ink/50">
+                Stok terpisah dari bahan baku — otomatis −1 tiap terjual; Habis di etalase = tak bisa dipesan
+              </span>
+            </span>
+          </label>
+          {form.readyEnabled && (
+            <button
+              onClick={() => setNumpad({ kind: "ready-qty" })}
+              className="w-full rounded-lg border-[2.5px] border-ink bg-white px-3 py-2.5 text-left shadow-neo-sm active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+            >
+              <span className="block text-[10px] font-bold uppercase text-ink/50">Porsi siap jual sekarang</span>
+              <span className="num text-sm font-bold">{form.readyQty} porsi</span>
+            </button>
+          )}
 
           {/* Resep */}
           <div className="rounded-xl border-[2.5px] border-ink bg-cream p-3">
@@ -459,8 +551,19 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
         open={numpad.kind === "cost"}
         onClose={() => setNumpad({ kind: "closed" })}
         title="Harga Pokok (HPP)"
+        subtitle={form.recipe.length > 0 ? "Otomatis tertimpa HPP resep saat disimpan" : undefined}
         onSubmit={(v) => {
           setForm((f) => ({ ...f, costPrice: v }));
+          setNumpad({ kind: "closed" });
+        }}
+      />
+      <Numpad
+        open={numpad.kind === "ready-qty"}
+        onClose={() => setNumpad({ kind: "closed" })}
+        title="Porsi Siap Jual"
+        subtitle="Jumlah di etalase saat ini"
+        onSubmit={(v) => {
+          setForm((f) => ({ ...f, readyQty: v }));
           setNumpad({ kind: "closed" });
         }}
       />

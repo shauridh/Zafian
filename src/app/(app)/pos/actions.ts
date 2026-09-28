@@ -78,6 +78,9 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
     const p = productMap.get(item.productId);
     if (!p) return { ok: false, error: "Produk tidak ditemukan" };
     if (!p.isAvailable) return { ok: false, error: `${p.name} sedang habis/tidak tersedia` };
+    if (p.readyEnabled && p.readyQty !== null && p.readyQty < item.qty) {
+      return { ok: false, error: `${p.name}: porsi siap jual tinggal ${p.readyQty}, kurang ${item.qty - p.readyQty}` };
+    }
     subtotal += p.price * item.qty;
     costTotal += p.costPrice * item.qty;
     itemDiscountTotal += item.discount * item.qty;
@@ -179,9 +182,20 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
         });
       }
 
-      // 3. Catat penjualan tunai ke shift (implisit via total orders; ledger kas hanya non-penjualan)
+      // 3. Kurangi porsi siap jual (etalase) untuk produk yang dilacak
+      for (const item of input.items) {
+        const p = productMap.get(item.productId)!;
+        if (p.readyEnabled && p.readyQty !== null) {
+          await tx.product.update({
+            where: { id: p.id },
+            data: { readyQty: { decrement: item.qty } },
+          });
+        }
+      }
 
-      // 4. Audit log
+      // 4. Catat penjualan tunai ke shift (implisit via total orders; ledger kas hanya non-penjualan)
+
+      // 5. Audit log
       await tx.auditLog.create({
         data: {
           userId,

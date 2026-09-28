@@ -38,6 +38,8 @@ model Product {
   imageUrl       String?
   price          Int
   costPrice      Int             @default(0)
+  readyQty       Int?            // porsi siap jual di etalase (null = tak dilacak)
+  readyEnabled   Boolean         @default(false) // aktifkan pelacakan porsi siap jual
   isAvailable    Boolean         @default(true)
   categoryId     String?
   category       Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)

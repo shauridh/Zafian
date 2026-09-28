@@ -198,24 +198,49 @@ export function PosClient(p: PosClientProps) {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-            {filtered.map((prod) => (
+            {filtered.map((prod) => {
+              const soldOut = prod.readyQty != null && prod.readyQty <= 0;
+              return (
               <button
                 key={prod.id}
-                onClick={() =>
+                onClick={() => {
+                  if (soldOut) {
+                    toast(`${prod.name} habis di etalase`, "error");
+                    return;
+                  }
+                  const inCart = items.find((i) => i.productId === prod.id)?.qty ?? 0;
+                  if (prod.readyQty != null && inCart + 1 > prod.readyQty) {
+                    toast(`${prod.name}: porsi siap jual tinggal ${prod.readyQty}`, "error");
+                    return;
+                  }
                   cart.addItem({
                     productId: prod.id,
                     name: prod.name,
                     price: prod.price,
                     imageUrl: prod.imageUrl,
-                  })
-                }
-                className="rounded-xl border-[2.5px] border-ink bg-white p-2 text-left shadow-neo transition-all active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+                  });
+                }}
+                className={cn(
+                  "rounded-xl border-[2.5px] border-ink bg-white p-2 text-left shadow-neo transition-all active:translate-x-[2px] active:translate-y-[2px] active:shadow-none",
+                  soldOut && "opacity-60"
+                )}
               >
                 <ProductImage src={prod.imageUrl} alt={prod.name} className="aspect-square w-full" />
                 <p className="mt-1.5 line-clamp-2 min-h-[2.1rem] text-xs font-bold leading-tight">{prod.name}</p>
                 <p className="num text-sm font-bold text-ink/80">{formatRupiah(prod.price)}</p>
+                {prod.readyQty != null && (
+                  <p
+                    className={cn(
+                      "mt-1 inline-block rounded-md border-[2px] border-ink px-1.5 py-0.5 text-[10px] font-bold uppercase leading-tight",
+                      soldOut ? "bg-danger text-white" : "bg-teal/30 text-ink"
+                    )}
+                  >
+                    {soldOut ? "Habis" : `🍽️ ${prod.readyQty} siap`}
+                  </p>
+                )}
               </button>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -237,7 +262,13 @@ export function PosClient(p: PosClientProps) {
       onSetTableNote={cart.setTableNote}
       onInc={(id) => {
         const item = items.find((i) => i.productId === id);
-        if (item) cart.setQty(id, item.qty + 1);
+        if (!item) return;
+        const prod = p.products.find((pr) => pr.id === id);
+        if (prod?.readyQty != null && item.qty + 1 > prod.readyQty) {
+          toast(`${prod.name}: porsi siap jual tinggal ${prod.readyQty}`, "error");
+          return;
+        }
+        cart.setQty(id, item.qty + 1);
       }}
       onDec={(id) => {
         const item = items.find((i) => i.productId === id);

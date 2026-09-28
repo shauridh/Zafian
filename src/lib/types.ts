@@ -21,6 +21,7 @@ export interface ProductDTO {
   price: number;
   imageUrl: string | null;
   isAvailable: boolean;
+  readyQty?: number | null;
   categoryId: string | null;
   categoryName?: string;
 }

@@ -28,6 +28,7 @@ export default async function PosPage() {
         price: p.price,
         imageUrl: p.imageUrl,
         isAvailable: p.isAvailable,
+        readyQty: p.readyQty,
         categoryId: p.categoryId,
         categoryName: p.category?.name,
       }))}

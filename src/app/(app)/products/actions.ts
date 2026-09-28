@@ -21,6 +21,8 @@ export async function saveProduct(input: {
   costPrice: number;
   isAvailable: boolean;
   imageUrl?: string | null;
+  readyEnabled: boolean;
+  readyQty: number;
   recipe: { ingredientId: string; qtyPerServing: number }[];
 }): Promise<{ ok: boolean; error?: string }> {
   const session = await requireOwner();
@@ -36,12 +38,29 @@ export async function saveProduct(input: {
     }
   }
 
+  // HPP otomatis dari resep: Σ (qty per sajian × HPP satuan bahan)
+  let costPrice = Math.round(input.costPrice || 0);
+  if (input.recipe.length > 0) {
+    const ings = await prisma.ingredient.findMany({
+      where: { id: { in: input.recipe.map((r) => r.ingredientId) } },
+      select: { id: true, costPerUnit: true },
+    });
+    const costMap = new Map(ings.map((i) => [i.id, i.costPerUnit]));
+    costPrice = input.recipe.reduce(
+      (s, r) => s + r.qtyPerServing * (costMap.get(r.ingredientId) ?? 0),
+      0
+    );
+    costPrice = Math.round(costPrice);
+  }
+
   const data = {
     name: input.name.trim(),
     categoryId: input.categoryId || null,
     price: Math.round(input.price),
-    costPrice: Math.round(input.costPrice || 0),
+    costPrice,
     isAvailable: input.isAvailable,
+    readyEnabled: input.readyEnabled,
+    readyQty: input.readyEnabled ? Math.max(0, Math.round(input.readyQty)) : null,
     imageUrl: input.imageUrl ?? null,
   };
 
@@ -81,6 +100,81 @@ export async function saveProduct(input: {
     console.error(e);
     return { ok: false, error: "Gagal menyimpan produk" };
   }
+}
+
+/**
+ * Tambah/kurangi porsi siap jual (etalase), terpisah dari stok bahan baku.
+ * Hanya aktif untuk produk dengan readyEnabled; tidak bisa minus di bawah 0.
+ */
+export async function adjustReadyQty(
+  id: string,
+  delta: number
+): Promise<{ ok: boolean; error?: string; readyQty?: number }> {
+  const session = await requireOwner();
+  if (!session) return { ok: false, error: "Tidak diizinkan" };
+  if (!Number.isInteger(delta) || Math.abs(delta) > 999) return { ok: false, error: "Perubahan tidak valid" };
+
+  const p = await prisma.product.findUnique({ where: { id }, select: { readyEnabled: true, readyQty: true, name: true } });
+  if (!p) return { ok: false, error: "Produk tidak ditemukan" };
+  if (!p.readyEnabled || p.readyQty === null) return { ok: false, error: "Pelacakan etalase tidak aktif untuk menu ini" };
+
+  const next = Math.max(0, p.readyQty + delta);
+  await prisma.product.update({ where: { id }, data: { readyQty: next } });
+  revalidatePath("/products");
+  revalidatePath("/pos");
+  return { ok: true, readyQty: next };
+}
+
+/**
+ * Laba & margin per menu dari penjualan 30 hari terakhir (status COMPLETED).
+ * Laba memakai HPP tercatat per transaksi (costTotal), bukan HPP hari ini.
+ */
+export async function getProductProfit(): Promise<
+  Record<string, { qty: number; revenue: number; profit: number }>
+> {
+  const since = new Date();
+  since.setDate(since.getDate() - 30);
+  since.setHours(0, 0, 0, 0);
+
+  const items = await prisma.orderItem.findMany({
+    where: { order: { status: "COMPLETED", createdAt: { gte: since } } },
+    select: {
+      productId: true,
+      qty: true,
+      priceSnapshot: true,
+      discount: true,
+      order: { select: { refundAmount: true, total: true } },
+    },
+  });
+
+  const map: Record<string, { qty: number; revenue: number; profit: number }> = {};
+
+  // Net revenue per menu (refund dibagi proporsional berdasar nilai bruto item)
+  for (const it of items) {
+    if (!it.productId) continue;
+    const m = (map[it.productId] ??= { qty: 0, revenue: 0, profit: 0 });
+    const gross = (it.priceSnapshot - it.discount) * it.qty;
+    const share = it.order.total > 0 ? gross / it.order.total : 0;
+    m.qty += it.qty;
+    m.revenue += gross - it.order.refundAmount * share;
+  }
+
+  // Laba per menu = bruto − refund proporsional − HPP tercatat proporsional
+  const orders = await prisma.order.findMany({
+    where: { status: "COMPLETED", createdAt: { gte: since } },
+    select: { id: true, total: true, costTotal: true, refundAmount: true, items: { select: { productId: true, qty: true, priceSnapshot: true, discount: true } } },
+  });
+  for (const o of orders) {
+    for (const it of o.items) {
+      if (!it.productId) continue;
+      const gross = (it.priceSnapshot - it.discount) * it.qty;
+      const share = o.total > 0 ? gross / o.total : 0;
+      const m = map[it.productId];
+      if (m) m.profit += gross - share * o.refundAmount - share * o.costTotal;
+    }
+  }
+
+  return map;
 }
 
 export async function deleteProduct(id: string): Promise<{ ok: boolean; error?: string }> {
