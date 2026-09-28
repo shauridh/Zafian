@@ -10,7 +10,7 @@ import { Input, Select } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { Numpad } from "@/components/ui/Numpad";
 import { useUI } from "@/store/ui";
-import { saveIngredient, deleteIngredient, stockIn, adjustStock } from "./actions";
+import { saveIngredient, deleteIngredient, stockIn, adjustStock, toggleIngredient } from "./actions";
 import { formatNumber, formatRupiah, formatDateTime, UNITS, cn } from "@/lib/utils";
 
 interface IngredientRow {
@@ -20,6 +20,7 @@ interface IngredientRow {
   stock: number;
   minStock: number;
   costPerUnit: number;
+  isActive: boolean;
   purchaseUnit: string | null;
   purchaseQty: number | null;
   purchasePrice: number | null;
@@ -79,6 +80,10 @@ export function IngredientsClient({
   const [numpadKind, setNumpadKind] = useState<
     "closed" | "min" | "cost" | "purchase-price" | "purchase-qty"
   >("closed");
+  // Stok masuk dua langkah: qty → harga beli opsional (0 = tanpa harga)
+  const [stockInStep, setStockInStep] = useState<"closed" | "qty" | "price">("closed");
+  const [stockInQty, setStockInQty] = useState(0);
+  const [stockInPrice, setStockInPrice] = useState(0);
 
   const lowStock = ingredients.filter((i) => i.stock <= i.minStock);
 
@@ -151,22 +156,37 @@ export function IngredientsClient({
     }
   };
 
-  const handleStockIn = async (qty: number) => {
+  const handleToggle = async (i: IngredientRow) => {
+    const res = await toggleIngredient(i.id, !i.isActive);
+    if (res.ok) {
+      toast(i.isActive ? `${i.name} dinonaktifkan` : `${i.name} diaktifkan`, "success");
+      router.refresh();
+    } else {
+      toast(res.error ?? "Gagal", "error");
+    }
+  };
+
+  const handleStockInConfirm = async (qty: number, price: number) => {
     if (!stockInTarget) return;
-    setStockInTarget(null); // tutup dulu (kontrak Numpad baru)
+    setStockInStep("closed"); // tutup dulu (kontrak Numpad baru)
     setBusy(true);
     const res = await stockIn({
       ingredientId: stockInTarget.id,
       qty,
+      purchasePrice: price > 0 ? price : undefined,
       note: stockInTarget.purchaseUnit ? `Beli ${qty} ${stockInTarget.purchaseUnit}` : "Stok masuk",
     });
     setBusy(false);
+    setStockInTarget(null);
+    setStockInQty(0);
+    setStockInPrice(0);
     if (res.ok) {
       const converted = stockInTarget.purchaseQty ? qty * stockInTarget.purchaseQty : qty;
+      const hppNote = price > 0 ? " · HPP bahan & menu diperbarui" : "";
       toast(
         stockInTarget.purchaseQty
-          ? `+${formatNumber(converted)} ${stockInTarget.unit} (${qty} ${stockInTarget.purchaseUnit})`
-          : `+${formatNumber(qty)} ${stockInTarget.unit}`,
+          ? `+${formatNumber(converted)} ${stockInTarget.unit} (${qty} ${stockInTarget.purchaseUnit})${hppNote}`
+          : `+${formatNumber(qty)} ${stockInTarget.unit}${hppNote}`,
         "success"
       );
       router.refresh();
@@ -215,10 +235,13 @@ export function IngredientsClient({
 
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           {ingredients.map((i) => (
-            <Card key={i.id} className="p-3">
+            <Card key={i.id} className={cn("p-3", !i.isActive && "opacity-60")}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-bold">{i.name}</p>
+                  <p className="truncate text-sm font-bold">
+                    {i.name}
+                    {!i.isActive && <span className="ml-1.5 text-[10px] font-bold text-ink/40">(nonaktif)</span>}
+                  </p>
                   <p className="num text-xl font-bold">
                     {formatNumber(i.stock)}{" "}
                     <span className="text-xs font-semibold text-ink/50">{i.unit}</span>
@@ -240,8 +263,36 @@ export function IngredientsClient({
                 </div>
                 {i.stock <= i.minStock && <Badge className="bg-danger text-white">Menipis</Badge>}
               </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                <Button size="sm" variant="lime" onClick={() => setStockInTarget(i)}>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={i.isActive}
+                  aria-label={`Aktifkan/nonaktifkan ${i.name}`}
+                  onClick={() => handleToggle(i)}
+                  className={cn(
+                    "relative h-6 w-11 shrink-0 rounded-full border-2 border-ink transition-colors",
+                    i.isActive ? "bg-lime" : "bg-ink/20"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute top-0.5 h-4 w-4 rounded-full border-2 border-ink bg-white transition-all",
+                      i.isActive ? "left-[1.4rem]" : "left-0.5"
+                    )
+                    }
+                  />
+                </button>
+                <Button
+                  size="sm"
+                  variant="lime"
+                  onClick={() => {
+                    setStockInTarget(i);
+                    setStockInQty(0);
+                    setStockInPrice(0);
+                    setStockInStep("qty");
+                  }}
+                >
                   + Stok Masuk
                 </Button>
                 <Button
@@ -392,10 +443,15 @@ export function IngredientsClient({
         </div>
       </Sheet>
 
-      {/* Stok masuk — dalam satuan BELI jika ada konversi */}
+      {/* Stok masuk langkah 1 — jumlah dalam satuan BELI jika ada konversi */}
       <Numpad
-        open={!!stockInTarget}
-        onClose={() => setStockInTarget(null)}
+        open={stockInStep === "qty"}
+        onClose={() => {
+          setStockInStep("closed");
+          setStockInTarget(null);
+          setStockInQty(0);
+          setStockInPrice(0);
+        }}
         title={`Stok Masuk: ${stockInTarget?.name ?? ""}`}
         subtitle={
           stockInTarget?.purchaseUnit
@@ -403,8 +459,26 @@ export function IngredientsClient({
             : `dalam ${stockInTarget?.unit ?? ""}`
         }
         quickAmounts={stockInTarget?.purchaseUnit ? [1, 5, 10] : undefined}
-        confirmLabel="Tambah Stok"
-        onSubmit={handleStockIn}
+        confirmLabel="Lanjut Harga →"
+        onSubmit={(qty) => {
+          setStockInQty(qty);
+          setStockInStep("price"); // langkah berikut: harga opsional
+        }}
+      />
+
+      {/* Stok masuk langkah 2 — harga beli total (0 = tanpa harga, HPP tidak berubah) */}
+      <Numpad
+        open={stockInStep === "price"}
+        onClose={() => {
+          setStockInStep("closed");
+          setStockInTarget(null);
+          setStockInQty(0);
+          setStockInPrice(0);
+        }}
+        title={`Harga Beli: ${stockInTarget?.name ?? ""}`}
+        subtitle={`total harga pembelian ${stockInQty > 0 ? formatNumber(stockInQty) : ""} — biarkan 0 bila tidak dicatat`}
+        confirmLabel={stockInPrice > 0 ? "Tambah Stok + HPP" : "Tambah Stok"}
+        onSubmit={(price) => handleStockInConfirm(stockInQty, price)}
       />
 
       {/* Penyesuaian: numpad → alasan */}

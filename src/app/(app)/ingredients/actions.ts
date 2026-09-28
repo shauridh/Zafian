@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { computeCostPerUnit } from "@/lib/utils";
+import { weightedCostPerUnit } from "@/lib/hpp";
 
 async function requireOwner() {
   const session = await getServerSession(authOptions);
@@ -23,6 +24,23 @@ export interface IngredientInput {
   purchaseUnit?: string | null;
   purchaseQty?: number | null; // isi per 1 satuan beli (dalam satuan jual)
   purchasePrice?: number | null; // harga per 1 satuan beli
+}
+
+/**
+ * Toggle aktif/nonaktif bahan. Nonaktif = disembunyikan dari pemilihan resep di halaman Menu;
+ * riwayat & laporan tetap utuh.
+ */
+export async function toggleIngredient(id: string, isActive: boolean): Promise<{ ok: boolean; error?: string }> {
+  const session = await requireOwner();
+  if (!session) return { ok: false, error: "Tidak diizinkan" };
+  try {
+    await prisma.ingredient.update({ where: { id }, data: { isActive } });
+    revalidatePath("/ingredients");
+    revalidatePath("/products");
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Gagal mengubah status bahan" };
+  }
 }
 
 export async function saveIngredient(input: IngredientInput): Promise<{ ok: boolean; error?: string }> {
@@ -85,6 +103,30 @@ export async function stockIn(input: {
   if (!session?.user || !["OWNER", "ADMIN"].includes((session.user as { role: string }).role)) {
     return { ok: false, error: "Tidak diizinkan" };
   }
+  const userId = (session.user as { id: string }).id;
+  const res = await stockInCore(userId, input);
+  if (res.ok) {
+    revalidatePath("/ingredients");
+    revalidatePath("/products"); // HPP menu bisa ikut recompute
+  }
+  return res;
+}
+
+/**
+ * Inti stok masuk tanpa konteks HTTP (dipanggil stockIn; test integrasi memanggil ini langsung).
+ * Jika purchasePrice diberikan: HPP bahan diperbarui dengan RATA-RATA TERTIMBANG
+ * (stok lama × HPP lama + qty baru × harga baru) / total — lalu HPP produk yang
+ * mereferensikan bahan ini direcompute (Σ qtyPerServing × costPerUnit).
+ */
+export async function stockInCore(
+  userId: string,
+  input: {
+    ingredientId: string;
+    qty: number;
+    purchasePrice?: number | null;
+    note?: string;
+  }
+): Promise<{ ok: boolean; error?: string }> {
   if (!Number.isFinite(input.qty) || input.qty <= 0) {
     return { ok: false, error: "Jumlah tidak valid" };
   }
@@ -95,16 +137,52 @@ export async function stockIn(input: {
   const hasConversion = !!ing.purchaseUnit && !!ing.purchaseQty && ing.purchaseQty > 0;
   const qtySellUnit = hasConversion ? input.qty * (ing.purchaseQty as number) : input.qty;
 
-  const userId = (session.user as { id: string }).id;
-  await prisma.$transaction([
-    prisma.ingredient.update({
+  await prisma.$transaction(async (tx) => {
+    // 1. HPP baru (rata-rata tertimbang) jika harga dicatat
+    let newCostPerUnit: number | null = null;
+    if (input.purchasePrice && input.purchasePrice > 0) {
+      const pricePerSellUnit = hasConversion
+        ? input.purchasePrice / (ing.purchaseQty as number)
+        : input.purchasePrice;
+      newCostPerUnit = weightedCostPerUnit(
+        ing.stock,
+        Number(ing.costPerUnit),
+        qtySellUnit,
+        pricePerSellUnit
+      );
+    }
+
+    // 2. Update bahan (stok + harga beli + HPP bila dihitung)
+    await tx.ingredient.update({
       where: { id: input.ingredientId },
       data: {
         stock: { increment: qtySellUnit },
-        ...(input.purchasePrice ? { purchasePrice: Math.round(input.purchasePrice) } : {}),
+        ...(input.purchasePrice && input.purchasePrice > 0
+          ? { purchasePrice: Math.round(input.purchasePrice) }
+          : {}),
+        ...(newCostPerUnit !== null ? { costPerUnit: newCostPerUnit } : {}),
       },
-    }),
-    prisma.ingredientMovement.create({
+    });
+
+    // 3. Recompute costPrice semua produk yang mereferensikan bahan ini
+    if (newCostPerUnit !== null) {
+      const recipeRows = await tx.recipeItem.findMany({
+        where: { ingredientId: input.ingredientId },
+        select: { productId: true },
+      });
+      const productIds = [...new Set(recipeRows.map((r) => r.productId))];
+      for (const pid of productIds) {
+        const rows = await tx.recipeItem.findMany({
+          where: { productId: pid },
+          select: { qtyPerServing: true, ingredient: { select: { costPerUnit: true } } },
+        });
+        const costPrice = rows.reduce((s, r) => s + r.qtyPerServing * Number(r.ingredient.costPerUnit), 0);
+        await tx.product.update({ where: { id: pid }, data: { costPrice: Math.round(costPrice) } });
+      }
+    }
+
+    // 4. Movement + audit
+    await tx.ingredientMovement.create({
       data: {
         ingredientId: input.ingredientId,
         type: "IN",
@@ -114,8 +192,8 @@ export async function stockIn(input: {
           : input.note || "Stok masuk",
         userId,
       },
-    }),
-    prisma.auditLog.create({
+    });
+    await tx.auditLog.create({
       data: {
         userId,
         action: "INGREDIENT_IN",
@@ -123,10 +201,9 @@ export async function stockIn(input: {
         entityId: input.ingredientId,
         meta: JSON.stringify({ qtyBeli: input.qty, qtyJual: qtySellUnit, note: input.note }),
       },
-    }),
-  ]);
+    });
+  });
 
-  revalidatePath("/ingredients");
   return { ok: true };
 }
 

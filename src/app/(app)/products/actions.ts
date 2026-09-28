@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { hppFromCombos } from "@/lib/hpp";
 
 async function requireOwner() {
   const session = await getServerSession(authOptions);
@@ -24,6 +25,7 @@ export async function saveProduct(input: {
   readyEnabled: boolean;
   readyQty: number;
   recipe: { ingredientId: string; qtyPerServing: number }[];
+  comboItems?: { childId: string; qty: number }[];
 }): Promise<{ ok: boolean; error?: string }> {
   const session = await requireOwner();
   if (!session) return { ok: false, error: "Hanya Owner/Admin yang bisa mengubah menu" };
@@ -45,12 +47,37 @@ export async function saveProduct(input: {
       where: { id: { in: input.recipe.map((r) => r.ingredientId) } },
       select: { id: true, costPerUnit: true },
     });
-    const costMap = new Map(ings.map((i) => [i.id, i.costPerUnit]));
+    const costMap = new Map(ings.map((i) => [i.id, Number(i.costPerUnit)]));
     costPrice = input.recipe.reduce(
       (s, r) => s + r.qtyPerServing * (costMap.get(r.ingredientId) ?? 0),
       0
     );
     costPrice = Math.round(costPrice);
+  }
+
+  // Validasi combo: tidak boleh combo & ber-resep bahan sekaligus kecuali kemasan,
+  // tidak boleh jadi anak dirinya sendiri, anak harus ada.
+  const combos = (input.comboItems ?? []).filter((c) => c.childId && c.qty > 0);
+  if (combos.length > 0) {
+    if (input.id && combos.some((c) => c.childId === input.id)) {
+      return { ok: false, error: "Paket tidak bisa memuat dirinya sendiri" };
+    }
+    const childIds = combos.map((c) => c.childId);
+    const childCount = await prisma.product.count({ where: { id: { in: childIds } } });
+    if (childCount !== new Set(childIds).size) {
+      return { ok: false, error: "Ada anak paket yang tidak ditemukan" };
+    }
+    if (input.recipe.length > 0) {
+      const ings = await prisma.ingredient.findMany({
+        where: { id: { in: input.recipe.map((r) => r.ingredientId) } },
+        select: { id: true, costPerUnit: true },
+      });
+      const costMap = new Map(ings.map((i) => [i.id, Number(i.costPerUnit)]));
+      const packagingOnly = input.recipe.every((r) => (costMap.get(r.ingredientId) ?? 0) === 0);
+      if (!packagingOnly) {
+        return { ok: false, error: "Paket hanya boleh punya resep kemasan (bahan ber-HPP 0) — bahan makanan sudah dihitung dari anak paket" };
+      }
+    }
   }
 
   const data = {
@@ -66,6 +93,7 @@ export async function saveProduct(input: {
 
   try {
     await prisma.$transaction(async (tx) => {
+      let comboId: string | undefined;
       if (input.id) {
         await tx.product.update({ where: { id: input.id }, data });
         await tx.recipeItem.deleteMany({ where: { productId: input.id } });
@@ -78,8 +106,15 @@ export async function saveProduct(input: {
             })),
           });
         }
+        await tx.comboItem.deleteMany({ where: { comboId: input.id } });
+        if (combos.length > 0) {
+          await tx.comboItem.createMany({
+            data: combos.map((c) => ({ comboId: input.id!, childId: c.childId, qty: c.qty })),
+          });
+        }
+        comboId = input.id;
       } else {
-        await tx.product.create({
+        const created = await tx.product.create({
           data: {
             ...data,
             recipe: {
@@ -88,8 +123,24 @@ export async function saveProduct(input: {
                 qtyPerServing: r.qtyPerServing,
               })),
             },
+            comboItems: {
+              create: combos.map((c) => ({ childId: c.childId, qty: c.qty })),
+            },
           },
         });
+        comboId = created.id;
+      }
+
+      // HPP combo = resep kemasan + Σ (HPP anak × qty) — dihitung SETELAH relasi tersimpan
+      if (combos.length > 0 && comboId) {
+        const full = await tx.product.findUnique({
+          where: { id: comboId },
+          include: {
+            comboItems: { include: { child: true } },
+            recipe: { include: { ingredient: { select: { costPerUnit: true } } } },
+          },
+        });
+        if (full) await tx.product.update({ where: { id: comboId }, data: { costPrice: hppFromCombos(full) } });
       }
     });
 
@@ -118,8 +169,29 @@ export async function adjustReadyQty(
   if (!p) return { ok: false, error: "Produk tidak ditemukan" };
   if (!p.readyEnabled || p.readyQty === null) return { ok: false, error: "Pelacakan etalase tidak aktif untuk menu ini" };
 
-  const next = Math.max(0, p.readyQty + delta);
-  await prisma.product.update({ where: { id }, data: { readyQty: next } });
+  // Atomik: increment langsung; decrement dengan guard gte 0 (tanpa read-then-write yang bisa lost-update)
+  if (delta >= 0) {
+    const r = await prisma.product.updateMany({
+      where: { id, readyEnabled: true, readyQty: { not: null } },
+      data: { readyQty: { increment: delta } },
+    });
+    if (r.count === 0) return { ok: false, error: "Pelacakan etalase tidak aktif untuk menu ini" };
+  } else {
+    const abs = Math.abs(delta);
+    const dec = await prisma.product.updateMany({
+      where: { id, readyQty: { gte: abs } },
+      data: { readyQty: { decrement: abs } },
+    });
+    if (dec.count === 0) {
+      // Sisa < abs → clamp ke 0 dalam satu operasi kondisional (tetap atomik)
+      await prisma.product.updateMany({
+        where: { id, readyQty: { gt: 0 } },
+        data: { readyQty: 0 },
+      });
+    }
+  }
+
+  const next = (await prisma.product.findUnique({ where: { id }, select: { readyQty: true } }))?.readyQty ?? 0;
   revalidatePath("/products");
   revalidatePath("/pos");
   return { ok: true, readyQty: next };
@@ -170,7 +242,7 @@ export async function getProductProfit(): Promise<
       const gross = (it.priceSnapshot - it.discount) * it.qty;
       const share = o.total > 0 ? gross / o.total : 0;
       const m = map[it.productId];
-      if (m) m.profit += gross - share * o.refundAmount - share * o.costTotal;
+      if (m) m.profit += gross - share * o.refundAmount - share * Number(o.costTotal);
     }
   }
 

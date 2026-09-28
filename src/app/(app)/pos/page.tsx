@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { PosClient } from "./PosClient";
+import { comboAvailableQty } from "@/lib/hpp";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ export default async function PosPage() {
     prisma.product.findMany({
       where: { isAvailable: true },
       orderBy: { name: "asc" },
-      include: { category: true },
+      include: { category: true, comboItems: { include: { child: { select: { readyQty: true } } } } },
     }),
     prisma.settings.findUnique({ where: { id: "main" } }),
     prisma.shift.findFirst({ where: { status: "OPEN" } }),
@@ -29,6 +30,9 @@ export default async function PosPage() {
         imageUrl: p.imageUrl,
         isAvailable: p.isAvailable,
         readyQty: p.readyQty,
+        comboAvail: comboAvailableQty(
+          p.comboItems.map((ci) => ({ readyQty: ci.child.readyQty, qty: ci.qty }))
+        ),
         categoryId: p.categoryId,
         categoryName: p.category?.name,
       }))}

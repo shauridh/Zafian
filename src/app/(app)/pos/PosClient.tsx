@@ -201,18 +201,20 @@ export function PosClient(p: PosClientProps) {
         ) : (
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
             {filtered.map((prod) => {
-              const soldOut = prod.readyQty != null && prod.readyQty <= 0;
+              // Combo: batas dari ketersediaan paket (anak etalase); produk biasa: readyQty sendiri
+              const limit = prod.comboAvail ?? prod.readyQty ?? null;
+              const soldOut = limit != null && limit <= 0;
               return (
               <button
                 key={prod.id}
                 onClick={() => {
                   if (soldOut) {
-                    toast(`${prod.name} habis di etalase`, "error");
+                    toast(`${prod.name} habis`, "error");
                     return;
                   }
                   const inCart = items.find((i) => i.productId === prod.id)?.qty ?? 0;
-                  if (prod.readyQty != null && inCart + 1 > prod.readyQty) {
-                    toast(`${prod.name}: porsi siap jual tinggal ${prod.readyQty}`, "error");
+                  if (limit != null && inCart + 1 > limit) {
+                    toast(`${prod.name}: tinggal ${limit} porsi`, "error");
                     return;
                   }
                   cart.addItem({
@@ -230,14 +232,14 @@ export function PosClient(p: PosClientProps) {
                 <ProductImage src={prod.imageUrl} alt={prod.name} className="aspect-square w-full" />
                 <p className="mt-1.5 line-clamp-2 min-h-[2.1rem] text-xs font-bold leading-tight">{prod.name}</p>
                 <p className="num text-sm font-bold text-ink/80">{formatRupiah(prod.price)}</p>
-                {prod.readyQty != null && (
+                {limit != null && (
                   <p
                     className={cn(
                       "mt-1 inline-block rounded-md border-[2px] border-ink px-1.5 py-0.5 text-[10px] font-bold uppercase leading-tight",
                       soldOut ? "bg-danger text-white" : "bg-teal/30 text-ink"
                     )}
                   >
-                    {soldOut ? "Habis" : `🍽️ ${prod.readyQty} siap`}
+                    {soldOut ? "Habis" : `🍽️ ${limit} siap`}
                   </p>
                 )}
               </button>
@@ -266,8 +268,9 @@ export function PosClient(p: PosClientProps) {
         const item = items.find((i) => i.productId === id);
         if (!item) return;
         const prod = p.products.find((pr) => pr.id === id);
-        if (prod?.readyQty != null && item.qty + 1 > prod.readyQty) {
-          toast(`${prod.name}: porsi siap jual tinggal ${prod.readyQty}`, "error");
+        const limit = prod?.comboAvail ?? prod?.readyQty ?? null;
+        if (limit != null && item.qty + 1 > limit) {
+          toast(`${prod?.name ?? "Menu"}: tinggal ${limit} porsi`, "error");
           return;
         }
         cart.setQty(id, item.qty + 1);

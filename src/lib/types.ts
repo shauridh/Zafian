@@ -22,6 +22,8 @@ export interface ProductDTO {
   imageUrl: string | null;
   isAvailable: boolean;
   readyQty?: number | null;
+  /** Ketersediaan paket (combo): min(floor(readyQty_anak / qty)) dari anak terlacak. */
+  comboAvail?: number | null;
   categoryId: string | null;
   categoryName?: string;
 }

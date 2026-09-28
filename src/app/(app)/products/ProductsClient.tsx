@@ -20,6 +20,14 @@ interface RecipeRow {
   qtyPerServing: number;
 }
 
+interface ComboRow {
+  childId: string;
+  qty: number;
+  childName?: string;
+  childPrice?: number;
+  childCost?: number;
+}
+
 interface ProductRow {
   id: string;
   name: string;
@@ -34,6 +42,7 @@ interface ProductRow {
   categoryId: string | null;
   categoryName: string | null;
   recipe: RecipeRow[];
+  combos: ComboRow[];
   soldQty: number;
   revenue30d: number;
   profit30d: number;
@@ -65,6 +74,7 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
     readyQty: 0,
     imageUrl: "" as string | null,
     recipe: [] as RecipeRow[],
+    combos: [] as ComboRow[],
   };
   const [form, setForm] = useState(emptyForm);
 
@@ -74,6 +84,7 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
     | { kind: "cost" }
     | { kind: "ready-qty" }
     | { kind: "recipe-qty"; index: number }
+    | { kind: "combo-qty"; index: number }
   >({ kind: "closed" });
   const [catNumpadOpen, setCatNumpadOpen] = useState(false);
   const [catSortOrder, setCatSortOrder] = useState(0);
@@ -96,6 +107,7 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
       readyQty: p.readyQty ?? 0,
       imageUrl: p.imageUrl,
       recipe: [...p.recipe],
+      combos: p.combos.map((c) => ({ childId: c.childId, qty: c.qty })),
     });
     setFormOpen(true);
   };
@@ -128,6 +140,7 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
       readyQty: form.readyQty,
       imageUrl: form.imageUrl || null,
       recipe: form.recipe.filter((r) => r.ingredientId && r.qtyPerServing > 0),
+      comboItems: form.combos.filter((c) => c.childId && c.qty > 0),
     });
     setBusy(false);
     if (res.ok) {
@@ -213,6 +226,14 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
   const recipeCostPreview = form.recipe
     .filter((r) => r.ingredientId && r.qtyPerServing > 0)
     .reduce((s, r) => s + r.qtyPerServing * (ingMap.get(r.ingredientId)?.costPerUnit ?? 0), 0);
+
+  /** HPP paket pratinjau = Σ (HPP anak × qty anak); kemasan dihitung server. */
+  const comboCostPreview = form.combos
+    .filter((c) => c.childId && c.qty > 0)
+    .reduce((s, c) => {
+      const p = products.find((pr) => pr.id === c.childId);
+      return s + c.qty * (p?.costPrice ?? 0);
+    }, 0);
 
   const handleAdjustReady = async (p: ProductRow, delta: number) => {
     const res = await adjustReadyQty(p.id, delta);
@@ -426,6 +447,69 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
             </button>
           )}
 
+          {/* Isi Paket (combo) */}
+          <div className="rounded-xl border-[2.5px] border-ink bg-white p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs font-bold uppercase tracking-wide">📦 Isi Paket (kombinasi menu)</p>
+              <Button
+                size="sm"
+                variant="teal"
+                onClick={() =>
+                  setForm((f) => ({
+                    ...f,
+                    combos: [...f.combos, { childId: "", qty: 1 }],
+                  }))
+                }
+              >
+                + Menu
+              </Button>
+            </div>
+            {form.combos.filter((c) => c.childId).length === 0 && (
+              <p className="text-xs text-ink/40">Pilih menu untuk dimasukkan ke paket.</p>
+            )}
+            <div className="space-y-2">
+              {form.combos.map((c, idx) => (
+                <div key={idx} className="flex items-center gap-1.5">
+                  <select
+                    value={c.childId}
+                    onChange={(e) =>
+                      setForm((f) => {
+                        const combos = [...f.combos];
+                        combos[idx] = { ...combos[idx], childId: e.target.value };
+                        return { ...f, combos };
+                      })
+                    }
+                    className="min-w-0 flex-1 rounded-lg border-2 border-ink bg-white px-2 py-2 text-xs font-semibold"
+                  >
+                    <option value="">— pilih menu —</option>
+                    {products.filter((pr) => pr.id !== form.id).map((pr) => (
+                      <option key={pr.id} value={pr.id}>
+                        {pr.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => setNumpad({ kind: "combo-qty", index: idx })}
+                    className="num shrink-0 rounded-lg border-2 border-ink bg-white px-2 py-2 text-xs font-bold shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                  >
+                    ×{c.qty}
+                  </button>
+                  <button
+                    onClick={() => setForm((f) => ({ ...f, combos: f.combos.filter((_, i) => i !== idx) }))}
+                    className="shrink-0 rounded-lg border-2 border-ink bg-danger px-2 py-2 text-xs font-bold text-white"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+            {form.combos.some((c) => c.childId && c.qty > 0) && (
+              <p className="mt-2 rounded-lg border-2 border-dashed border-ink/40 bg-cream px-3 py-2 text-xs font-semibold">
+                📦 HPP paket = {formatRupiah(comboCostPreview)} — otomatis dihitung saat Simpan; stok bahan & porsi anak berkurang otomatis saat paket terjual
+              </p>
+            )}
+          </div>
+
           {/* Resep */}
           <div className="rounded-xl border-[2.5px] border-ink bg-cream p-3">
             <div className="mb-2 flex items-center justify-between">
@@ -577,6 +661,21 @@ export function ProductsClient({ products, categories, ingredients }: ProductsCl
             const recipe = [...f.recipe];
             if (numpad.kind === "recipe-qty") recipe[numpad.index] = { ...recipe[numpad.index], qtyPerServing: v };
             return { ...f, recipe };
+          });
+          setNumpad({ kind: "closed" });
+        }}
+      />
+      <Numpad
+        open={numpad.kind === "combo-qty"}
+        onClose={() => setNumpad({ kind: "closed" })}
+        title="Jumlah dalam Paket"
+        subtitle="Banyaknya menu ini dalam 1 porsi paket"
+        quickAmounts={[1, 2, 3]}
+        onSubmit={(v) => {
+          setForm((f) => {
+            const combos = [...f.combos];
+            if (numpad.kind === "combo-qty") combos[numpad.index] = { ...combos[numpad.index], qty: Math.max(1, Math.round(v)) };
+            return { ...f, combos };
           });
           setNumpad({ kind: "closed" });
         }}

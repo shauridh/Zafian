@@ -37,13 +37,15 @@ model Product {
   sku            String?
   imageUrl       String?
   price          Int
-  costPrice      Int             @default(0)
+  costPrice      Decimal         @default(0) @db.Decimal(12, 2)
   readyQty       Int?            // porsi siap jual di etalase (null = tak dilacak)
   readyEnabled   Boolean         @default(false) // aktifkan pelacakan porsi siap jual
   isAvailable    Boolean         @default(true)
   categoryId     String?
   category       Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   recipe         RecipeItem[]
+  comboItems     ComboItem[]     @relation("ComboParent") // isi paket bila produk ini combo
+  inCombos       ComboItem[]     @relation("ComboChild")  // combo yang memuat produk ini
   orderItems     OrderItem[]
   stockMovements StockMovement[]
   createdAt      DateTime        @default(now())
@@ -58,7 +60,8 @@ model Ingredient {
   unit        String               @default("pcs") // satuan jual/resep: gr | ml | pcs | ons | kg | l | pack | porsi | botol | kaleng | sloki | dus | sak | bks
   stock       Float                @default(0) // selalu dalam satuan JUAL
   minStock    Float                @default(0)
-  costPerUnit Int                  @default(0) // HPP per satuan jual (auto dari harga beli ÷ isi)
+  isActive    Boolean              @default(true) // toggle on/off: nonaktif = disembunyikan dari pemilihan resep
+  costPerUnit Decimal            @default(0) @db.Decimal(12, 2) // HPP per satuan jual (rata-rata tertimbang dari pembelian)
   purchaseUnit   String?           // satuan beli (mis. kg, pack, dus) — boleh beda dari satuan jual
   purchaseQty    Float?            // isi per 1 satuan beli, dikonversi ke satuan jual (mis. 1 kg = 10 ons)
   purchasePrice  Int?              // harga beli per 1 satuan beli (Rp)
@@ -77,6 +80,18 @@ model RecipeItem {
   ingredient    Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
   @@unique([productId, ingredientId])
+}
+
+model ComboItem {
+  id      String  @id @default(cuid())
+  comboId String
+  childId String
+  qty     Int     @default(1) // banyaknya child dalam 1 porsi combo
+  combo   Product @relation("ComboParent", fields: [comboId], references: [id], onDelete: Cascade)
+  child   Product @relation("ComboChild", fields: [childId], references: [id], onDelete: Cascade)
+
+  @@unique([comboId, childId])
+  @@index([childId])
 }
 
 model StockMovement {
@@ -143,7 +158,7 @@ model Order {
   discount      Int        @default(0)
   tax           Int        @default(0)
   total         Int        @default(0)
-  costTotal     Int        @default(0)
+  costTotal     Decimal    @default(0) @db.Decimal(12, 2)
   paymentMethod String     @default("CASH") // CASH | QRIS | ONLINE_PLATFORM
   cashReceived  Int?
   change        Int?

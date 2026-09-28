@@ -50,7 +50,7 @@ export default async function ReportsPage() {
         discount: o.discount,
         tax: o.tax,
         total: o.total,
-        costTotal: o.costTotal,
+        costTotal: Number(o.costTotal),
         refundAmount: o.refundAmount,
         createdAt: o.createdAt.toISOString(),
         items: o.items.map((i) => ({

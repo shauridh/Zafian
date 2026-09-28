@@ -53,7 +53,17 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
   const session = await getServerSession(authOptions);
   if (!session?.user) return { ok: false, error: "Sesi berakhir, silakan login ulang" };
   const userId = (session.user as { id: string }).id;
+  return createOrderCore(userId, input);
+}
 
+/**
+ * Inti checkout tanpa konteks HTTP — dipanggil createOrder setelah validasi sesi.
+ * Diekstrak agar test integrasi bisa menggerakkan checkout langsung (tanpa next-auth).
+ */
+export async function createOrderCore(
+  userId: string,
+  input: CreateOrderInput
+): Promise<CreateOrderResult> {
   if (!input.items?.length) return { ok: false, error: "Keranjang kosong" };
   if (!VALID_ORDER_TYPES.includes(input.orderType)) return { ok: false, error: "Tipe pesanan tidak valid" };
   if (!VALID_PAYMENTS.includes(input.paymentMethod)) return { ok: false, error: "Metode pembayaran tidak valid" };
@@ -76,10 +86,10 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
   }
   const items = [...itemMap.entries()].map(([productId, agg]) => ({ productId, ...agg }));
 
-  // Ambil produk + resep
+  // Ambil produk + resep + isi combo
   const products = await prisma.product.findMany({
     where: { id: { in: [...itemMap.keys()] } },
-    include: { recipe: true },
+    include: { recipe: true, comboItems: { include: { child: { include: { recipe: true } } } } },
   });
   const productMap = new Map(products.map((p) => [p.id, p]));
 
@@ -91,11 +101,13 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
     const p = productMap.get(item.productId);
     if (!p) return { ok: false, error: "Produk tidak ditemukan" };
     if (!p.isAvailable) return { ok: false, error: `${p.name} sedang habis/tidak tersedia` };
-    if (p.readyEnabled && p.readyQty !== null && p.readyQty < item.qty) {
+    // Combo: stok etalase dilacak per ANAK (didekrement saat transaksi), bukan per paket
+    const isCombo = p.comboItems.length > 0;
+    if (!isCombo && p.readyEnabled && p.readyQty !== null && p.readyQty < item.qty) {
       return { ok: false, error: `${p.name}: porsi siap jual tinggal ${p.readyQty}, kurang ${item.qty - p.readyQty}` };
     }
     subtotal += p.price * item.qty;
-    costTotal += p.costPrice * item.qty;
+    costTotal += Number(p.costPrice) * item.qty;
     itemDiscountTotal += item.discount * item.qty;
   }
 
@@ -120,13 +132,25 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
     change = input.cashReceived - total;
   }
 
-  // Cek kecukupan bahan (resep)
+  // Kebutuhan bahan di-EXPAND dari combo: 1 paket = resep kemasan + Σ (resep anak × qty anak)
+  // (loop dari itemMap agregat — input.items mentah bisa duplikat productId)
   const needMap = new Map<string, number>();
-  for (const item of input.items) {
-    const p = productMap.get(item.productId)!;
+  for (const [productId, agg] of itemMap) {
+    const p = productMap.get(productId)!;
     for (const r of p.recipe) {
-      needMap.set(r.ingredientId, (needMap.get(r.ingredientId) ?? 0) + r.qtyPerServing * item.qty);
+      needMap.set(r.ingredientId, (needMap.get(r.ingredientId) ?? 0) + r.qtyPerServing * agg.qty);
     }
+    for (const ci of p.comboItems) {
+      for (const r of ci.child.recipe) {
+        needMap.set(r.ingredientId, (needMap.get(r.ingredientId) ?? 0) + r.qtyPerServing * ci.qty * agg.qty);
+      }
+    }
+  }
+  // Validasi etalase anak combo (agregat lintas item): 1 paket memakan qty anak per porsi
+  const childNeed = new Map<string, number>();
+  for (const [productId, agg] of itemMap) {
+    const p = productMap.get(productId)!;
+    for (const ci of p.comboItems) childNeed.set(ci.childId, (childNeed.get(ci.childId) ?? 0) + ci.qty * agg.qty);
   }
   if (needMap.size > 0) {
     const ingredients = await prisma.ingredient.findMany({
@@ -179,12 +203,13 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
         },
       });
 
-      // 2. Kurangi bahan resep + catat pergerakan
+      // 2. Kurangi bahan resep + catat pergerakan — GUARD ATOMIK: gagal jika stok < kebutuhan
       for (const [ingredientId, qty] of needMap) {
-        await tx.ingredient.update({
-          where: { id: ingredientId },
+        const r = await tx.ingredient.updateMany({
+          where: { id: ingredientId, stock: { gte: qty } },
           data: { stock: { decrement: qty } },
         });
+        if (r.count === 0) throw new Error(`BAHAN:${ingredientId}`);
         await tx.ingredientMovement.create({
           data: {
             ingredientId,
@@ -196,14 +221,38 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
         });
       }
 
-      // 3. Kurangi porsi siap jual (etalase) untuk produk yang dilacak
+      // 3. Kurangi porsi siap jual (etalase) — GUARD ATOMIK: gagal jika readyQty < qty
       for (const item of items) {
         const p = productMap.get(item.productId)!;
+        if (p.comboItems.length > 0) continue; // combo: etalase didekrement per anak di bawah
         if (p.readyEnabled && p.readyQty !== null) {
-          await tx.product.update({
-            where: { id: p.id },
+          const r = await tx.product.updateMany({
+            where: { id: p.id, readyQty: { gte: item.qty } },
             data: { readyQty: { decrement: item.qty } },
           });
+          if (r.count === 0) throw new Error(`ETALASE:${p.name}`);
+        }
+      }
+      // 3b. Etalase anak combo (agregat lintas item, termasuk anak dipakai beberapa paket)
+      for (const [childId, qty] of childNeed) {
+        const child = productMap.get(childId);
+        if (!child) {
+          const c = await tx.product.findUnique({ where: { id: childId }, select: { readyEnabled: true, readyQty: true, name: true } });
+          if (c?.readyEnabled && c.readyQty !== null) {
+            const r = await tx.product.updateMany({
+              where: { id: childId, readyQty: { gte: qty } },
+              data: { readyQty: { decrement: qty } },
+            });
+            if (r.count === 0) throw new Error(`ETALASE:${c.name}`);
+          }
+          continue;
+        }
+        if (child.readyEnabled && child.readyQty !== null) {
+          const r = await tx.product.updateMany({
+            where: { id: childId, readyQty: { gte: qty } },
+            data: { readyQty: { decrement: qty } },
+          });
+          if (r.count === 0) throw new Error(`ETALASE:${child.name}`);
         }
       }
 
@@ -259,6 +308,16 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
       },
     };
   } catch (e) {
+    // Guard transaksi melempar ETALASE:/BAHAN: — petakan ke pesan yang bisa dimengerti kasir
+    if (e instanceof Error) {
+      if (e.message.startsWith("ETALASE:")) {
+        return { ok: false, error: `${e.message.slice(8)}: porsi siap jual habis` };
+      }
+      if (e.message.startsWith("BAHAN:")) {
+        const ing = await prisma.ingredient.findUnique({ where: { id: e.message.slice(6) }, select: { name: true, unit: true } });
+        return { ok: false, error: `Stok bahan "${ing?.name ?? "?"}" tidak cukup` };
+      }
+    }
     console.error("createOrder error", e);
     return { ok: false, error: "Gagal menyimpan transaksi" };
   }

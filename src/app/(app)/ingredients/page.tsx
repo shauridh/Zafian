@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 export default async function IngredientsPage() {
   const [ingredients, movements] = await Promise.all([
-    prisma.ingredient.findMany({ orderBy: [{ name: "asc" }] }),
+    prisma.ingredient.findMany({ orderBy: [{ isActive: "desc" }, { name: "asc" }] }),
     prisma.ingredientMovement.findMany({
       orderBy: { createdAt: "desc" },
       take: 20,
@@ -21,7 +21,8 @@ export default async function IngredientsPage() {
         unit: i.unit,
         stock: i.stock,
         minStock: i.minStock,
-        costPerUnit: i.costPerUnit,
+        costPerUnit: Number(i.costPerUnit),
+        isActive: i.isActive,
         purchaseUnit: i.purchaseUnit,
         purchaseQty: i.purchaseQty,
         purchasePrice: i.purchasePrice,
