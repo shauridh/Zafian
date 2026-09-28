@@ -62,10 +62,23 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
   const shift = await prisma.shift.findFirst({ where: { status: "OPEN" } });
   if (!shift) return { ok: false, error: "Belum ada shift aktif. Buka shift dulu." };
 
+  // Gabungkan item dengan produk yang sama — qty agregat yang divalidasi & dikurangi
+  const itemMap = new Map<string, { qty: number; discount: number; note?: string }>();
+  for (const item of input.items) {
+    const agg = itemMap.get(item.productId);
+    if (agg) {
+      agg.qty += item.qty;
+      agg.discount += item.discount;
+      if (item.note) agg.note = agg.note ? `${agg.note}; ${item.note}` : item.note;
+    } else {
+      itemMap.set(item.productId, { qty: item.qty, discount: item.discount, note: item.note });
+    }
+  }
+  const items = [...itemMap.entries()].map(([productId, agg]) => ({ productId, ...agg }));
+
   // Ambil produk + resep
-  const productIds = input.items.map((i) => i.productId);
   const products = await prisma.product.findMany({
-    where: { id: { in: productIds } },
+    where: { id: { in: [...itemMap.keys()] } },
     include: { recipe: true },
   });
   const productMap = new Map(products.map((p) => [p.id, p]));
@@ -74,7 +87,7 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
   let subtotal = 0;
   let costTotal = 0;
   let itemDiscountTotal = 0;
-  for (const item of input.items) {
+  for (const item of items) {
     const p = productMap.get(item.productId);
     if (!p) return { ok: false, error: "Produk tidak ditemukan" };
     if (!p.isAvailable) return { ok: false, error: `${p.name} sedang habis/tidak tersedia` };
@@ -121,10 +134,11 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
     });
     for (const ing of ingredients) {
       const need = needMap.get(ing.id) ?? 0;
+      const needRounded = Math.round(need * 100) / 100;
       if (ing.stock < need) {
         return {
           ok: false,
-          error: `Stok bahan "${ing.name}" tidak cukup (butuh ${need} ${ing.unit}, tersisa ${ing.stock} ${ing.unit})`,
+          error: `Stok bahan "${ing.name}" tidak cukup (butuh ${needRounded} ${ing.unit}, tersisa ${ing.stock} ${ing.unit})`,
         };
       }
     }
@@ -150,7 +164,7 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
           change,
           status: "COMPLETED",
           items: {
-            create: input.items.map((item) => {
+            create: items.map((item) => {
               const p = productMap.get(item.productId)!;
               return {
                 productId: item.productId,
@@ -183,7 +197,7 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
       }
 
       // 3. Kurangi porsi siap jual (etalase) untuk produk yang dilacak
-      for (const item of input.items) {
+      for (const item of items) {
         const p = productMap.get(item.productId)!;
         if (p.readyEnabled && p.readyQty !== null) {
           await tx.product.update({

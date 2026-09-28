@@ -136,6 +136,8 @@ export function PosClient(p: PosClientProps) {
     setCartOpen(false);
     setReceipt(result.receipt ?? null);
     toast(`Transaksi ${result.orderNo} berhasil!`, "success");
+    // Muat ulang data server agar stok etalase & bahan di UI ikut berkurang
+    router.refresh();
   };
 
   // ================= Shift =================

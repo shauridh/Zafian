@@ -174,6 +174,12 @@ export async function getProductProfit(): Promise<
     }
   }
 
+  // Bulatkan hasil agar tidak bocor artefak float (mis. 6932.999999999) ke UI
+  for (const m of Object.values(map)) {
+    m.revenue = Math.round(m.revenue);
+    m.profit = Math.round(m.profit);
+  }
+
   return map;
 }
 

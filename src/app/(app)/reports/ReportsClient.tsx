@@ -31,13 +31,6 @@ interface UsageLite {
   createdAt: string;
 }
 
-interface IngredientLite {
-  name: string;
-  unit: string;
-  stock: number;
-  minStock: number;
-}
-
 const PERIODS = [
   { value: 1, label: "Hari Ini" },
   { value: 7, label: "7 Hari" },
@@ -209,7 +202,7 @@ export function ReportsClient({
       revenue, prevRevenue, grossProfit, prevGrossProfit, trxCount, prevTrxCount,
       avg, prevAvg, totalDiscount, totalRefund,
       byChannel: [...byChannel.entries()].sort((a, b) => b[1].total - a[1].total),
-      byPayment, daily, topItems, hourMap, maxHour, usage, ingUsage,
+      byPayment, daily, topItems, hourMap, maxHour, usage,
       completed: cur.filter((o) => o.status === "COMPLETED"),
     };
   }, [orders, ingredientUsage, days, channelFilter, paymentFilter]);
