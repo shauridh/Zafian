@@ -16,3 +16,4 @@ public/uploads/*.jpeg
 public/uploads/*.webp
 !public/uploads/.gitkeep
 tsconfig.tsbuildinfo
+.superpowers/
